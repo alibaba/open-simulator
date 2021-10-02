@@ -1,0 +1,56 @@
+# 测试结果
+# all(greed affinity toleration): 17
+# greed: 13
+# drf: 15
+# 不用算法: 16
+apiVersion: v1
+kind: Node
+metadata:
+  labels:
+    beta.kubernetes.io/arch: amd64
+    beta.kubernetes.io/os: linux
+    kubernetes.io/arch: amd64
+    kubernetes.io/hostname: minikube
+    kubernetes.io/os: linux
+    node-role.kubernetes.io/worker: ""
+  name: fake-node
+status:
+  allocatable:
+    cpu: "4"
+    ephemeral-storage: 61255492Ki
+    hugepages-1Gi: "0"
+    hugepages-2Mi: "0"
+    memory: 8Gi
+    pods: "110"
+  capacity:
+    cpu: "4"
+    ephemeral-storage: 61255492Ki
+    hugepages-1Gi: "0"
+    hugepages-2Mi: "0"
+    memory: 8Gi
+    pods: "110"
+  conditions:
+  - lastHeartbeatTime: "2021-06-01T03:59:14Z"
+    lastTransitionTime: "2021-05-31T23:48:32Z"
+    message: kubelet has sufficient memory available
+    reason: KubeletHasSufficientMemory
+    status: "False"
+    type: MemoryPressure
+  - lastHeartbeatTime: "2021-06-01T03:59:14Z"
+    lastTransitionTime: "2021-05-31T23:48:32Z"
+    message: kubelet has no disk pressure
+    reason: KubeletHasNoDiskPressure
+    status: "False"
+    type: DiskPressure
+  - lastHeartbeatTime: "2021-06-01T03:59:14Z"
+    lastTransitionTime: "2021-05-31T23:48:32Z"
+    message: kubelet has sufficient PID available
+    reason: KubeletHasSufficientPID
+    status: "False"
+    type: PIDPressure
+  - lastHeartbeatTime: "2021-06-01T03:59:14Z"
+    lastTransitionTime: "2021-05-31T23:48:32Z"
+    message: kubelet is posting ready status
+    reason: KubeletReady
+    status: "True"
+    type: Ready

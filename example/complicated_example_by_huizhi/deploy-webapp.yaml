@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-deploy
+  labels:
+    app: webapp-deploy
+spec:
+  replicas: 8
+  selector:
+    matchLabels:
+      app: webapp-deploy
+  template:
+    metadata:
+      labels:
+        app: webapp-deploy
+    spec:
+      terminationGracePeriodSeconds: 5
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - webapp-deploy
+            topologyKey: kubernetes.io/hostname
+          # preferredDuringSchedulingIgnoredDuringExecution:
+          # - weight: 100
+          #   podAffinityTerm:
+          #     labelSelector:
+          #       matchExpressions:
+          #       - key: app
+          #         operator: In
+          #         values:
+          #         - webapp-sts
+          #     topologyKey: kubernetes.io/hostname
+      tolerations:
+      - key: harm.cn/system
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: nginx
+        image: harbor.myk8s.aliyunpoc.com/library/busybox
+        command:
+        - sh
+        - "-c"
+        - |
+            while true; do
+              echo "huizhi testing";
+              echo "yes ">>/data/yes.txt;
+              sleep 10s
+            done;
+        resources: # 必填：resource情况
+          requests:
+            cpu: 12
+            memory: 64Gi
+          limits:
+            cpu: 12
+            memory: 64Gi

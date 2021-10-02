@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: busybox-sts
+spec:
+  selector:
+    matchLabels:
+      app: busybox-sts
+  podManagementPolicy: Parallel
+  serviceName: "busybox"
+  replicas: 8
+  template:
+    metadata:
+      labels:
+        app: busybox-sts
+    spec:
+      affinity:
+        podAntiAffinity:
+          # requiredDuringSchedulingIgnoredDuringExecution:
+          # - labelSelector:
+          #     matchExpressions:
+          #     - key: app
+          #       operator: In
+          #       values:
+          #       - busybox-sts
+          #   topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - busybox-sts
+              topologyKey: kubernetes.io/hostname
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: busybox
+        image: harbor.myk8s.aliyunpoc.com/library/busybox
+        command:
+        - sh
+        - "-c"
+        - |
+          while true; do
+            echo "huizhi testing";
+            echo "yes ">>/data/yes.txt;
+            sleep 120s
+          done;
+        resources:
+          requests:
+            cpu: 8
+            memory: 16Gi
+          limits:
+            cpu: 8
+            memory: 16Gi

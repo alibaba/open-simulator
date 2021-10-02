@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: busybox-deploy
+  labels:
+    app: busybox-deploy
+spec:
+  replicas: 8
+  selector:
+    matchLabels:
+      app: busybox-deploy
+  template:
+    metadata:
+      labels:
+        app: busybox-deploy
+    spec:
+      hostNetwork: true
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      # nodeSelector:
+      #   node-role.kubernetes.io/xdragon: "true"
+      containers:
+      - name: busybox
+        image: harbor.myk8s.aliyunpoc.com/library/busybox
+        command:
+        - sh
+        - "-c"
+        - |
+            while true; do
+              echo "huizhi testing";
+              echo "yes ">>/data/yes.txt;
+              sleep 10s
+            done;
+        resources:
+          requests:
+            cpu: 8
+            memory: 8Gi
+          limits:
+            cpu: 8
+            memory: 8Gi
