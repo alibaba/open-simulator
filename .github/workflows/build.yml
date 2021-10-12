@@ -27,14 +27,6 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-      - name: Test and update codecov
-        run: |
-          go test -race -coverprofile=coverage.txt -covermode=atomic ./...
-      - uses: codecov/codecov-action@v2
-        with:
-          file: ./coverage.txt
-          flags: unittests
-          fail_ci_if_error: true
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
 
