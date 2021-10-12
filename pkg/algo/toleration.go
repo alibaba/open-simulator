@@ -17,8 +17,5 @@ func NewTolerationQueue(pods []*corev1.Pod) *TolerationQueue {
 func (tol *TolerationQueue) Len() int      { return len(tol.pods) }
 func (tol *TolerationQueue) Swap(i, j int) { tol.pods[i], tol.pods[j] = tol.pods[j], tol.pods[i] }
 func (tol *TolerationQueue) Less(i, j int) bool {
-	if tol.pods[i].Spec.Tolerations != nil {
-		return true
-	}
-	return false
+	return tol.pods[i].Spec.Tolerations != nil
 }

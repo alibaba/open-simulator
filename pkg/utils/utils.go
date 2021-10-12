@@ -46,7 +46,7 @@ func GetMasterFromKubeConfig(filename string) (string, error) {
 
 func InitKubeSchedulerConfiguration(opts *schedoptions.Options) (*schedconfig.CompletedConfig, error) {
 	c := &schedconfig.Config{}
-	// clear out all unnecesary options so no port is bound
+	// clear out all unnecessary options so no port is bound
 	// to allow running multiple instances in a row
 	opts.Deprecated = nil
 	opts.CombinedInsecureServing = nil
@@ -111,14 +111,10 @@ func GetObjectsFromFiles(files []string) (*corev1.Node, []*corev1.Pod) {
 	return node, pods
 }
 
-// controllerKind contains the schema.GroupVersionKind for this controller type.
-var controllerKind = apps.SchemeGroupVersion.WithKind("StatefulSet")
-
 func MakeValidPodsByDeployment(deploy *apps.Deployment) []*corev1.Pod {
 	var pods []*corev1.Pod
 	if deploy.Spec.Replicas == nil {
-		var replica int32
-		replica = 1
+		var replica int32 = 1
 		deploy.Spec.Replicas = &replica
 	}
 	for ordinal := 0; ordinal < int(*deploy.Spec.Replicas); ordinal++ {
@@ -135,8 +131,7 @@ func MakeValidPodsByDeployment(deploy *apps.Deployment) []*corev1.Pod {
 func MakeValidPodsByStatefulSet(set *apps.StatefulSet) []*corev1.Pod {
 	var pods []*corev1.Pod
 	if set.Spec.Replicas == nil {
-		var replica int32
-		replica = 1
+		var replica int32 = 1
 		set.Spec.Replicas = &replica
 	}
 	for ordinal := 0; ordinal < int(*set.Spec.Replicas); ordinal++ {
@@ -220,7 +215,7 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 	newPod.ObjectMeta.Annotations[simontype.AnnoPodProvisioner] = simontype.DefaultSchedulerName
 	newPod.ObjectMeta.Annotations[simontype.AnnoFake] = ""
 	// todo: handle pvc
-	if ValidatePod(newPod) == false {
+	if !ValidatePod(newPod) {
 		os.Exit(1)
 	}
 
@@ -245,7 +240,7 @@ func MakeValidNodeByNode(node *corev1.Node, nodename string) *corev1.Node {
 	}
 	node.ObjectMeta.Annotations[simontype.AnnoFake] = ""
 	node.ObjectMeta.UID = uuid.NewUUID()
-	if ValidateNode(node) == false {
+	if !ValidateNode(node) {
 		os.Exit(1)
 	}
 	return node

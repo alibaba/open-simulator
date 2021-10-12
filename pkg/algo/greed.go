@@ -35,10 +35,7 @@ func (greed *GreedQueue) Swap(i, j int) { greed.pods[i], greed.pods[j] = greed.p
 func (greed *GreedQueue) Less(i, j int) bool {
 	// DRF算法: 在调度时，让具有最低资源占用比例的任务具有高优先级
 	// 若用DRF算法, 反而不是最优解
-	if greed.calculatePodShare(greed.pods[i]) > greed.calculatePodShare(greed.pods[j]) {
-		return true
-	}
-	return false
+	return greed.calculatePodShare(greed.pods[i]) > greed.calculatePodShare(greed.pods[j])
 }
 
 func (greed *GreedQueue) calculatePodShare(pod *corev1.Pod) float64 {
