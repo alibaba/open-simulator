@@ -29,7 +29,10 @@ var DebugCmd = &cobra.Command{
 
 func init() {
 	options.AddFlags(DebugCmd.Flags())
-	DebugCmd.MarkFlagRequired("filepath")
+	if err := DebugCmd.MarkFlagRequired("filepath"); err != nil {
+		fmt.Printf("debug init error: %s", err.Error())
+		os.Exit(1)
+	}
 }
 
 func run(opt *Options) error {

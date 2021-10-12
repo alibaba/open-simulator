@@ -183,7 +183,9 @@ func run(opt *Options) error {
 		if sim.GetStatus() == simontype.StopReasonSuccess {
 			fmt.Println(string(utils.ColorGreen) + "Success!")
 			sim.Report()
-			sim.CreateConfigMapAndSaveItToFile(simontype.ConfigMapFileName)
+			if err := sim.CreateConfigMapAndSaveItToFile(simontype.ConfigMapFileName); err != nil {
+				return err
+			}
 			break
 		} else {
 			fmt.Printf(string(utils.ColorRed)+"Failed reason: %s\n"+string(utils.ColorReset), sim.GetStatus())

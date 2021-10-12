@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"sync"
 	"time"
 
 	simontype "github.com/alibaba/open-simulator/pkg/type"
@@ -36,9 +35,8 @@ type Simulator struct {
 	informerFactory informers.SharedInformerFactory
 
 	// scheduler
-	scheduler            *scheduler.Scheduler
-	schedulerName        string
-	defaultSchedulerConf *schedconfig.CompletedConfig
+	scheduler     *scheduler.Scheduler
+	schedulerName string
 
 	// stopCh
 	simulatorStop chan struct{}
@@ -49,7 +47,7 @@ type Simulator struct {
 	cancelFunc context.CancelFunc
 
 	// mutex
-	closedMux sync.RWMutex
+	// closedMux sync.RWMutex
 
 	status Status
 }
@@ -89,8 +87,8 @@ func New(externalClient externalclientset.Interface, kubeSchedulerConfig *schedc
 			},
 			Handler: cache.ResourceEventHandlerFuncs{
 				AddFunc: func(obj interface{}) {
-					if _, ok := obj.(*corev1.Pod); ok {
-						// fmt.Printf("test add pod %s/%s\n", pod.Namespace, pod.Name)
+					if pod, ok := obj.(*corev1.Pod); ok {
+						fmt.Printf("test add pod %s/%s\n", pod.Namespace, pod.Name)
 					}
 				},
 				UpdateFunc: func(oldObj, newObj interface{}) {
@@ -199,7 +197,7 @@ func (sim *Simulator) Report() {
 			fractionMemoryReq := float64(memoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
 			fractionMemoryLimit := float64(memoryLimit.Value()) / float64(allocatable.Memory().Value()) * 100
 			fake := "√"
-			if utils.IsFake(pod.Annotations) == false {
+			if !utils.IsFake(pod.Annotations) {
 				fake = ""
 			}
 			data := []string{
@@ -246,7 +244,7 @@ func (sim *Simulator) Report() {
 		nodeFractionMemoryReq := float64(nodeMemoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
 		nodeFractionMemoryLimit := float64(nodeMemoryLimit.Value()) / float64(allocatable.Memory().Value()) * 100
 		fake := "√"
-		if utils.IsFake(node.Annotations) == false {
+		if !utils.IsFake(node.Annotations) {
 			fake = ""
 		}
 		data := []string{
@@ -282,13 +280,13 @@ func (sim *Simulator) CreateConfigMapAndSaveItToFile(fileName string) error {
 		}
 		var kind, workloadName, workloadNamespace string
 		var exist bool
-		if kind, exist = pod.Annotations[simontype.AnnoWorkloadKind]; exist != true {
+		if kind, exist = pod.Annotations[simontype.AnnoWorkloadKind]; !exist {
 			continue
 		}
-		if workloadName, exist = pod.Annotations[simontype.AnnoWorkloadName]; exist != true {
+		if workloadName, exist = pod.Annotations[simontype.AnnoWorkloadName]; !exist {
 			continue
 		}
-		if workloadNamespace, exist = pod.Annotations[simontype.AnnoWorkloadNamespace]; exist != true {
+		if workloadNamespace, exist = pod.Annotations[simontype.AnnoWorkloadNamespace]; !exist {
 			continue
 		}
 		switch kind {
@@ -319,7 +317,9 @@ func (sim *Simulator) CreateConfigMapAndSaveItToFile(fileName string) error {
 	}
 
 	scheme := runtime.NewScheme()
-	corev1.AddToScheme(scheme)
+	if err := corev1.AddToScheme(scheme); err != nil {
+		return err
+	}
 	codec := serializer.NewCodecFactory(scheme).LegacyCodec(corev1.SchemeGroupVersion)
 	output, _ := runtime.Encode(codec, configMap)
 	if err := ioutil.WriteFile(fileName, output, 0644); err != nil {
@@ -406,6 +406,9 @@ func (sim *Simulator) AddFakeNode(nodeCount int, node *corev1.Node) error {
 		}
 		// create daemonset pod
 		daemonsets, err := sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{})
+		if err != nil {
+			return err
+		}
 		for _, daemonset := range daemonsets.Items {
 			pod := utils.MakeValidPodByDaemonset(&daemonset, hostname)
 			_, err := sim.fakeClient.CoreV1().Pods(daemonset.Namespace).Create(context.Background(), pod, metav1.CreateOptions{})
@@ -544,7 +547,7 @@ func (sim *Simulator) SyncFakeCluster(needPodAndNode bool) error {
 	return nil
 }
 
-func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) error {
+func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) {
 	var stop bool = false
 	var stopReason string
 	var stopMessage string
@@ -577,8 +580,6 @@ func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) error {
 			sim.simulatorStop <- struct{}{}
 		}
 	}
-
-	return nil
 }
 
 func (sim *Simulator) newPlugin(schedulerName string, configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
