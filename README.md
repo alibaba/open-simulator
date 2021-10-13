@@ -1,7 +1,6 @@
 # Open-Simulator
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/alibaba/open-simulator)](https://goreportcard.com/report/github.com/alibaba/open-simulator)
-[![codecov](https://codecov.io/gh/alibaba/open-simulator/branch/main/graphs/badge.svg)](https://codecov.io/gh/alibaba/open-simulator)
 ![workflow build](https://github.com/alibaba/open-simulator/actions/workflows/build.yml/badge.svg)
 
 ## Motivation
