@@ -82,7 +82,8 @@ func run(opt *Options) error {
 		}
 	}
 	// Step 2: check
-	node, pods := utils.GetObjectsFromFiles(filePaths)
+	node, pods, dss := utils.GetObjectsFromFiles(filePaths)
+	//fmt.Printf("GetObjectsFromFiles:%v\n", dss)
 
 	// Step 3: get kube client
 	var cfg *restclient.Config
@@ -158,7 +159,7 @@ func run(opt *Options) error {
 		}
 
 		// load resources from real to fake
-		if err := sim.SyncFakeCluster(true); err != nil {
+		if err := sim.SyncFakeCluster(dss); err != nil {
 			return err
 		}
 		// add fake nodes

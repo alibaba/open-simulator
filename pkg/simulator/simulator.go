@@ -12,7 +12,9 @@ import (
 	"github.com/alibaba/open-simulator/pkg/utils"
 	"github.com/olekukonko/tablewriter"
 	log "github.com/sirupsen/logrus"
+	apps "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -400,48 +402,41 @@ func (sim *Simulator) AddFakeNode(nodeCount int, node *corev1.Node) error {
 		// create fake node
 		hostname := fmt.Sprintf("%s-%02d", simontype.FakeNodeNamePrefix, i)
 		node = utils.MakeValidNodeByNode(node, hostname)
+		metav1.SetMetaDataLabel(&node.ObjectMeta,"fake-node", "1")
 		_, err := sim.fakeClient.CoreV1().Nodes().Create(context.Background(), node, metav1.CreateOptions{})
 		if err != nil {
 			return err
 		}
-		// create daemonset pod
-		daemonsets, err := sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{})
-		if err != nil {
-			return err
-		}
-		for _, daemonset := range daemonsets.Items {
-			pod := utils.MakeValidPodByDaemonset(&daemonset, hostname)
-			_, err := sim.fakeClient.CoreV1().Pods(daemonset.Namespace).Create(context.Background(), pod, metav1.CreateOptions{})
-			if err != nil {
-				return err
-			}
-		}
+	}
+
+	// create daemonset pod
+	if err := sim.SyncDaemonSetPods(); err != nil {
+		return err
 	}
 	return nil
 }
 
-func (sim *Simulator) SyncFakeCluster(needPodAndNode bool) error {
-	if needPodAndNode {
-		// sync nodes
-		nodeItems, err := sim.externalclient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
-		if err != nil {
-			return fmt.Errorf("unable to list nodes: %v", err)
-		}
-		for _, item := range nodeItems.Items {
-			if _, err := sim.fakeClient.CoreV1().Nodes().Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
-				return fmt.Errorf("unable to copy node: %v", err)
-			}
-		}
+func (sim *Simulator) SyncFakeCluster(dss []*apps.DaemonSet) error {
 
-		// sync pods
-		podItems, err := sim.externalclient.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
-		if err != nil {
-			return fmt.Errorf("unable to list pods: %v", err)
+	// sync nodes
+	nodeItems, err := sim.externalclient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("unable to list nodes: %v", err)
+	}
+	for _, item := range nodeItems.Items {
+		if _, err := sim.fakeClient.CoreV1().Nodes().Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("unable to copy node: %v", err)
 		}
-		for _, item := range podItems.Items {
-			if _, err := sim.fakeClient.CoreV1().Pods(item.Namespace).Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
-				return fmt.Errorf("unable to copy pod: %v", err)
-			}
+	}
+
+	// sync pods
+	podItems, err := sim.externalclient.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("unable to list pods: %v", err)
+	}
+	for _, item := range podItems.Items {
+		if _, err := sim.fakeClient.CoreV1().Pods(item.Namespace).Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("unable to copy pod: %v", err)
 		}
 	}
 
@@ -533,17 +528,77 @@ func (sim *Simulator) SyncFakeCluster(needPodAndNode bool) error {
 		}
 	}
 
-	// sync daemonSet
+	// sync daemonSet of cluster and application
 	daemonSetItems, err := sim.externalclient.AppsV1().DaemonSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("unable to list daemon sets: %v", err)
 	}
 	for _, item := range daemonSetItems.Items {
+		metav1.SetMetaDataLabel(&item.ObjectMeta, "daemonset-from-cluster", "1")
 		if _, err := sim.fakeClient.AppsV1().DaemonSets(item.Namespace).Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("unable to copy daemon set: %v", err)
+			return fmt.Errorf("unable to copy the cluster daemon set: %v", err)
+		}
+	}
+	for _, item := range dss {
+		metav1.SetMetaDataLabel(&item.ObjectMeta, "daemonset-from-file", "1")
+		if _, err := sim.fakeClient.AppsV1().DaemonSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("unable to copy the application daemon set: %v", err)
 		}
 	}
 
+	return nil
+}
+
+func (sim *Simulator) SyncDaemonSetPods() error {
+	var pods  []*corev1.Pod
+	var nodes []*corev1.Node
+
+	//all nodes
+	nodeItems, _ := sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	fmt.Printf("AllNodes------------------\n")
+	for _, item := range nodeItems.Items {
+		fmt.Printf("%s\n", item.Name)
+		newItem := item
+		nodes = append(nodes, &newItem)
+	}
+
+	//daemonset from file
+	daemonsets, _ := sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{LabelSelector: utils.DaemonSetFromFile})
+	fmt.Printf("DaemonSetFromFile--------------\n")
+	for _, item := range daemonsets.Items {
+		fmt.Printf("%s\n", item.Name)
+		newItem := item
+		newPods := utils.MakeValidPodsByDaemonset(&newItem, nodes)
+		pods = append(pods, newPods...)
+	}
+
+	//fake nodes
+	nodes = []*corev1.Node{}
+	nodeItems, _ = sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: utils.FakeNode})
+	fmt.Printf("FakeNodes------------------\n")
+	for _, item := range nodeItems.Items {
+		fmt.Printf("%s\n", item.Name)
+		newItem := item
+		nodes = append(nodes, &newItem)
+	}
+
+	//daemonset from cluster
+	daemonsets, _ = sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{LabelSelector: utils.DaemonSetFromCluster})
+	fmt.Printf("DaemonSetFromCluster------------------\n")
+	for _, item := range daemonsets.Items {
+		fmt.Printf("%s\n", item.Name)
+		newItem := item
+		newPods := utils.MakeValidPodsByDaemonset(&newItem, nodes)
+		pods = append(pods, newPods...)
+	}
+
+	fmt.Printf("DaemonSetPods------------------\n")
+	for _, item := range pods {
+		fmt.Printf("%s\n", item.Name)
+		if _, err := sim.fakeClient.CoreV1().Pods(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+	}
 	return nil
 }
 
