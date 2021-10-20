@@ -595,8 +595,10 @@ func (sim *Simulator) SyncDaemonSetPods() error {
 	fmt.Printf("DaemonSetPods------------------\n")
 	for _, item := range pods {
 		fmt.Printf("%s\n", item.Name)
-		if _, err := sim.fakeClient.CoreV1().Pods(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); !apierrors.IsAlreadyExists(err) {
-			return err
+		if _, err := sim.fakeClient.CoreV1().Pods(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
+			if !apierrors.IsAlreadyExists(err) {
+				return err
+			}
 		}
 	}
 	return nil
