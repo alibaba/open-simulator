@@ -36,20 +36,6 @@ const (
 	FakeNode             = "fake-node"
 )
 
-type ResourceTypes struct {
-	Nodes                  []*corev1.Node
-	Pods                   []*corev1.Pod
-	DaemonSets             []*apps.DaemonSet
-	StatefulSets           []*apps.StatefulSet
-	Deployments            []*apps.Deployment
-	ReplicationControllers []*corev1.ReplicationController
-	ReplicaSets            []*apps.ReplicaSet
-	Services               []*corev1.Service
-	PersistentVolumeClaims []*corev1.PersistentVolumeClaim
-	StorageClasss          []*v1.StorageClass
-	PodDisruptionBudgets   []*v1beta1.PodDisruptionBudget
-}
-
 func GetMasterFromKubeConfig(filename string) (string, error) {
 	config, err := clientcmd.LoadFromFile(filename)
 	if err != nil {
@@ -93,8 +79,8 @@ func GetRecorderFactory(cc *schedconfig.CompletedConfig) profile.RecorderFactory
 	}
 }
 
-func GetObjectsFromFiles(files []string) ResourceTypes {
-	var resources ResourceTypes
+func GetObjectsFromFiles(files []string) simontype.ResourceTypes {
+	var resources simontype.ResourceTypes
 
 	for _, f := range files {
 		obj := DecodeYamlFile(f)
@@ -102,17 +88,15 @@ func GetObjectsFromFiles(files []string) ResourceTypes {
 		// now use switch over the type of the object and match each type-case
 		switch o := obj.(type) {
 		case *corev1.Node:
-			resources.Nodes = append(resources.Nodes, o)
+			resources.Node = o
 		case *corev1.Pod:
 			resources.Pods = append(resources.Pods, MakeValidPodByPod(o))
 		case *apps.DaemonSet:
 			resources.DaemonSets = append(resources.DaemonSets, o)
 		case *apps.StatefulSet:
 			resources.StatefulSets = append(resources.StatefulSets, o)
-			resources.Pods = append(resources.Pods, MakeValidPodsByStatefulSet(o)...)
 		case *apps.Deployment:
 			resources.Deployments = append(resources.Deployments, o)
-			resources.Pods = append(resources.Pods, MakeValidPodsByDeployment(o)...)
 		case *corev1.Service:
 			resources.Services = append(resources.Services, o)
 		case *corev1.PersistentVolumeClaim:
@@ -216,9 +200,7 @@ func NewDaemonPod(ds *apps.DaemonSet, nodeName string) *corev1.Pod {
 	pod.ObjectMeta.Namespace = ds.Namespace
 	pod = MakePodValid(pod)
 	pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindDaemonSet, ds.Name, pod.Namespace)
-	if pod.Spec.NodeName == "" {
-		pod.Spec.NodeName = nodeName
-	}
+	pod.Spec.NodeName = nodeName
 	return pod
 }
 

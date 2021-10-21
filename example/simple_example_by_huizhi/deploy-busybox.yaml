@@ -24,15 +24,6 @@ spec:
       containers:
       - name: busybox
         image: busybox
-        command:
-        - sh
-        - "-c"
-        - |
-            while true; do
-              echo "huizhi testing";
-              echo "yes ">>/data/yes.txt;
-              sleep 10s
-            done;
         resources:
           requests:
             cpu: 1500m

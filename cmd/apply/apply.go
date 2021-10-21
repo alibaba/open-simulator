@@ -147,10 +147,8 @@ func run(opt *Options) error {
 
 	// Step 5: get result
 	for i := 0; i < 100; i++ {
-		newResourceTypes := resourceTypes
-
 		// 1: init simulator
-		sim, err := simulator.New(kubeClient, cc)
+		sim, err := simulator.New(kubeClient, cc, resourceTypes)
 		if err != nil {
 			return err
 		}
@@ -161,18 +159,18 @@ func run(opt *Options) error {
 		}
 
 		// add fake nodes
-		if err := sim.AddFakeNode(i, newResourceTypes.Nodes[0]); err != nil {
+		if err := sim.AddFakeNode(i); err != nil {
 			return err
 		}
 
 		// sync the pods of daemonset
-		if err := sim.SyncDaemonSetPods(newResourceTypes.DaemonSets); err != nil {
+		if err := sim.GeneratePodsFromResources(); err != nil {
 			return err
 		}
 
 		// 2: run simulator instance
 		if opt.UseBreed {
-			greed := algo.NewGreedQueue(sim.GetNodes(), newResourceTypes.Pods)
+			greed := algo.NewGreedQueue(sim.GetNodes(), sim.GetPodsToBeSimulated())
 			sort.Sort(greed)
 			// tol := algo.NewTolerationQueue(pods)
 			// sort.Sort(tol)
@@ -180,8 +178,8 @@ func run(opt *Options) error {
 			// sort.Sort(aff)
 		}
 
-		fmt.Printf(string(utils.ColorCyan)+"There are %d pods to be scheduled\n"+string(utils.ColorReset), len(newResourceTypes.Pods))
-		err = sim.Run(newResourceTypes.Pods)
+		fmt.Printf(string(utils.ColorCyan)+"There are %d pods to be scheduled\n"+string(utils.ColorReset), len(sim.GetPodsToBeSimulated()))
+		err = sim.Run(sim.GetPodsToBeSimulated())
 		if err != nil {
 			return err
 		}
