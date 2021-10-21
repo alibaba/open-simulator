@@ -7,19 +7,19 @@ metadata:
     meta.helm.sh/release-namespace: default
   labels:
     app.kubernetes.io/managed-by: Helm
-    k8s-app: kube-dns
-  name: app-coredns
+    k8s-app: kube-test
+  name: app-test
   namespace: kube-system
 spec:
   revisionHistoryLimit: 10
   selector:
     matchLabels:
-      k8s-app: kube-dns
+      k8s-app: kube-test
   template:
     metadata:
       creationTimestamp: null
       labels:
-        k8s-app: kube-dns
+        k8s-app: kube-test
     spec:
       affinity:
         nodeAffinity:
@@ -44,7 +44,7 @@ spec:
           periodSeconds: 10
           successThreshold: 1
           timeoutSeconds: 5
-        name: coredns
+        name: app-test
         ports:
         - containerPort: 53
           name: dns

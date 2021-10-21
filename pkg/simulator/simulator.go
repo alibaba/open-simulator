@@ -393,6 +393,7 @@ func (sim *Simulator) AddNodes(nodes []*corev1.Node) error {
 }
 
 func (sim *Simulator) AddFakeNode(nodeCount int, node *corev1.Node) error {
+	log.Infof(string(utils.ColorYellow)+"add %d node(s)"+string(utils.ColorReset), nodeCount)
 	if node == nil {
 		return fmt.Errorf("node is nil")
 	}
@@ -402,21 +403,16 @@ func (sim *Simulator) AddFakeNode(nodeCount int, node *corev1.Node) error {
 		// create fake node
 		hostname := fmt.Sprintf("%s-%02d", simontype.FakeNodeNamePrefix, i)
 		node = utils.MakeValidNodeByNode(node, hostname)
-		metav1.SetMetaDataLabel(&node.ObjectMeta,"fake-node", "1")
+		metav1.SetMetaDataLabel(&node.ObjectMeta, "fake-node", "")
 		_, err := sim.fakeClient.CoreV1().Nodes().Create(context.Background(), node, metav1.CreateOptions{})
 		if err != nil {
 			return err
 		}
 	}
-
-	// create daemonset pod
-	if err := sim.SyncDaemonSetPods(); err != nil {
-		return err
-	}
 	return nil
 }
 
-func (sim *Simulator) SyncFakeCluster(dss []*apps.DaemonSet) error {
+func (sim *Simulator) SyncFakeCluster() error {
 
 	// sync nodes
 	nodeItems, err := sim.externalclient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
@@ -528,83 +524,67 @@ func (sim *Simulator) SyncFakeCluster(dss []*apps.DaemonSet) error {
 		}
 	}
 
-	// sync daemonSet of cluster and application
+	// sync daemonSet
 	daemonSetItems, err := sim.externalclient.AppsV1().DaemonSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("unable to list daemon sets: %v", err)
 	}
 	for _, item := range daemonSetItems.Items {
-		metav1.SetMetaDataLabel(&item.ObjectMeta, "daemonset-from-cluster", "1")
+		metav1.SetMetaDataLabel(&item.ObjectMeta, "daemonset-from-cluster", "")
 		if _, err := sim.fakeClient.AppsV1().DaemonSets(item.Namespace).Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy the cluster daemon set: %v", err)
-		}
-	}
-	for _, item := range dss {
-		metav1.SetMetaDataLabel(&item.ObjectMeta, "daemonset-from-file", "1")
-		if _, err := sim.fakeClient.AppsV1().DaemonSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("unable to copy the application daemon set: %v", err)
 		}
 	}
 
 	return nil
 }
 
-func (sim *Simulator) SyncDaemonSetPods() error {
-	var pods  []*corev1.Pod
+func (sim *Simulator) SyncDaemonSetPods(ds []*apps.DaemonSet) error {
+	var pods []*corev1.Pod
 	var nodes []*corev1.Node
 
 	//all nodes
 	nodeItems, _ := sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
-	fmt.Printf("AllNodes------------------\n")
+
 	for _, item := range nodeItems.Items {
-		fmt.Printf("%s\n", item.Name)
 		newItem := item
 		nodes = append(nodes, &newItem)
 	}
 
 	//daemonset from file
-	daemonsets, _ := sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{LabelSelector: utils.DaemonSetFromFile})
-	fmt.Printf("DaemonSetFromFile--------------\n")
-	for _, item := range daemonsets.Items {
-		fmt.Printf("%s\n", item.Name)
-		newItem := item
-		newPods := utils.MakeValidPodsByDaemonset(&newItem, nodes)
+	for _, item := range ds {
+		newPods := utils.MakeValidPodsByDaemonset(item, nodes)
 		pods = append(pods, newPods...)
 	}
 
 	//fake nodes
 	nodes = []*corev1.Node{}
 	nodeItems, _ = sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: utils.FakeNode})
-	fmt.Printf("FakeNodes------------------\n")
 	for _, item := range nodeItems.Items {
-		fmt.Printf("%s\n", item.Name)
 		newItem := item
 		nodes = append(nodes, &newItem)
 	}
 
 	//daemonset from cluster
-	daemonsets, _ = sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{LabelSelector: utils.DaemonSetFromCluster})
-	fmt.Printf("DaemonSetFromCluster------------------\n")
+	daemonsets, _ := sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{LabelSelector: utils.DaemonSetFromCluster})
 	for _, item := range daemonsets.Items {
-		fmt.Printf("%s\n", item.Name)
 		newItem := item
 		newPods := utils.MakeValidPodsByDaemonset(&newItem, nodes)
 		pods = append(pods, newPods...)
 	}
 
-	fmt.Printf("DaemonSetPods------------------\n")
 	for _, item := range pods {
-		fmt.Printf("%s\n", item.Name)
 		if _, err := sim.fakeClient.CoreV1().Pods(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			if !apierrors.IsAlreadyExists(err) {
-				return err
+				return fmt.Errorf("unable to create pod(%s): %v", item.Name, err)
 			}
 		}
 	}
+
 	return nil
 }
 
-func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) {
+func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) error {
 	var stop bool = false
 	var stopReason string
 	var stopMessage string
@@ -637,6 +617,8 @@ func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) {
 			sim.simulatorStop <- struct{}{}
 		}
 	}
+
+	return nil
 }
 
 func (sim *Simulator) newPlugin(schedulerName string, configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {

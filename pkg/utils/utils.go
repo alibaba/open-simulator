@@ -3,7 +3,6 @@ package utils
 import (
 	"fmt"
 	"io/ioutil"
-	"k8s.io/kubernetes/pkg/controller/daemon"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,7 +11,10 @@ import (
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	apps "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/api/policy/v1beta1"
+	v1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -25,14 +27,28 @@ import (
 	apiv1 "k8s.io/kubernetes/pkg/apis/core/v1"
 	"k8s.io/kubernetes/pkg/apis/core/validation"
 	"k8s.io/kubernetes/pkg/controller"
+	"k8s.io/kubernetes/pkg/controller/daemon"
 	"k8s.io/kubernetes/pkg/scheduler/profile"
 )
 
 const (
-	DaemonSetFromFile    = "daemonset-from-file=1"
-	DaemonSetFromCluster = "daemonset-from-cluster=1"
-	FakeNode             = "fake-node=1"
+	DaemonSetFromCluster = "daemonset-from-cluster"
+	FakeNode             = "fake-node"
 )
+
+type ResourceTypes struct {
+	Nodes                  []*corev1.Node
+	Pods                   []*corev1.Pod
+	DaemonSets             []*apps.DaemonSet
+	StatefulSets           []*apps.StatefulSet
+	Deployments            []*apps.Deployment
+	ReplicationControllers []*corev1.ReplicationController
+	ReplicaSets            []*apps.ReplicaSet
+	Services               []*corev1.Service
+	PersistentVolumeClaims []*corev1.PersistentVolumeClaim
+	StorageClasss          []*v1.StorageClass
+	PodDisruptionBudgets   []*v1beta1.PodDisruptionBudget
+}
 
 func GetMasterFromKubeConfig(filename string) (string, error) {
 	config, err := clientcmd.LoadFromFile(filename)
@@ -77,48 +93,66 @@ func GetRecorderFactory(cc *schedconfig.CompletedConfig) profile.RecorderFactory
 	}
 }
 
-func GetObjectsFromFiles(files []string) (*corev1.Node, []*corev1.Pod, []*apps.DaemonSet) {
-	var node *corev1.Node
-	var pods []*corev1.Pod
-	var dss   []*apps.DaemonSet
+func GetObjectsFromFiles(files []string) ResourceTypes {
+	var resources ResourceTypes
+
 	for _, f := range files {
-		fileExtension := filepath.Ext(f)
-		if fileExtension != ".yaml" && fileExtension != ".yml" {
-			continue
-		}
-		yamlFile, err := ioutil.ReadFile(f)
-		if err != nil {
-			fmt.Printf("Error while read file %s: %s\n", f, err.Error())
-			os.Exit(1)
-		}
-
-		decode := scheme.Codecs.UniversalDeserializer().Decode
-		obj, _, err := decode(yamlFile, nil, nil)
-
-		if err != nil {
-			fmt.Printf("Error while decoding YAML object. Err was: %s", err)
-			os.Exit(1)
-		}
+		obj := DecodeYamlFile(f)
 
 		// now use switch over the type of the object and match each type-case
 		switch o := obj.(type) {
 		case *corev1.Node:
-			node = o
+			resources.Nodes = append(resources.Nodes, o)
 		case *corev1.Pod:
-			pods = append(pods, MakeValidPodByPod(o))
-		case *apps.Deployment:
-			pods = append(pods, MakeValidPodsByDeployment(o)...)
-		case *apps.StatefulSet:
-			pods = append(pods, MakeValidPodsByStatefulSet(o)...)
+			resources.Pods = append(resources.Pods, MakeValidPodByPod(o))
 		case *apps.DaemonSet:
-			dss = append(dss, o)
+			resources.DaemonSets = append(resources.DaemonSets, o)
+		case *apps.StatefulSet:
+			resources.StatefulSets = append(resources.StatefulSets, o)
+			resources.Pods = append(resources.Pods, MakeValidPodsByStatefulSet(o)...)
+		case *apps.Deployment:
+			resources.Deployments = append(resources.Deployments, o)
+			resources.Pods = append(resources.Pods, MakeValidPodsByDeployment(o)...)
+		case *corev1.Service:
+			resources.Services = append(resources.Services, o)
+		case *corev1.PersistentVolumeClaim:
+			resources.PersistentVolumeClaims = append(resources.PersistentVolumeClaims, o)
+		case *corev1.ReplicationController:
+			resources.ReplicationControllers = append(resources.ReplicationControllers, o)
+		case *apps.ReplicaSet:
+			resources.ReplicaSets = append(resources.ReplicaSets, o)
+		case *v1.StorageClass:
+			resources.StorageClasss = append(resources.StorageClasss, o)
+		case *v1beta1.PodDisruptionBudget:
+			resources.PodDisruptionBudgets = append(resources.PodDisruptionBudgets, o)
 		default:
-			//o is unknown for us
-			fmt.Println("type is unknown for us")
+			fmt.Printf("type is unknown for us: %T\n", o)
 			continue
 		}
 	}
-	return node, pods, dss
+	return resources
+}
+
+func DecodeYamlFile(file string) runtime.Object {
+	fileExtension := filepath.Ext(file)
+	if fileExtension != ".yaml" && fileExtension != ".yml" {
+		return nil
+	}
+	yamlFile, err := ioutil.ReadFile(file)
+	if err != nil {
+		fmt.Printf("Error while read file %s: %s\n", file, err.Error())
+		os.Exit(1)
+	}
+
+	decode := scheme.Codecs.UniversalDeserializer().Decode
+	obj, _, err := decode(yamlFile, nil, nil)
+
+	if err != nil {
+		fmt.Printf("Error while decoding YAML object. Err was: %s", err)
+		os.Exit(1)
+	}
+
+	return obj
 }
 
 func MakeValidPodsByDeployment(deploy *apps.Deployment) []*corev1.Pod {
@@ -154,7 +188,6 @@ func MakeValidPodsByStatefulSet(set *apps.StatefulSet) []*corev1.Pod {
 	}
 	return pods
 }
-
 
 func MakeValidPodsByDaemonset(ds *apps.DaemonSet, nodes []*corev1.Node) []*corev1.Pod {
 	var pods []*corev1.Pod
