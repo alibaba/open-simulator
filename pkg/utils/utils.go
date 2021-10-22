@@ -11,7 +11,10 @@ import (
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	apps "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/api/policy/v1beta1"
+	v1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -24,7 +27,13 @@ import (
 	apiv1 "k8s.io/kubernetes/pkg/apis/core/v1"
 	"k8s.io/kubernetes/pkg/apis/core/validation"
 	"k8s.io/kubernetes/pkg/controller"
+	"k8s.io/kubernetes/pkg/controller/daemon"
 	"k8s.io/kubernetes/pkg/scheduler/profile"
+)
+
+const (
+	DaemonSetFromCluster = "daemonset-from-cluster"
+	FakeNode             = "fake-node"
 )
 
 func GetMasterFromKubeConfig(filename string) (string, error) {
@@ -70,45 +79,64 @@ func GetRecorderFactory(cc *schedconfig.CompletedConfig) profile.RecorderFactory
 	}
 }
 
-func GetObjectsFromFiles(files []string) (*corev1.Node, []*corev1.Pod) {
-	var node *corev1.Node
-	var pods []*corev1.Pod
+func GetObjectsFromFiles(files []string) simontype.ResourceTypes {
+	var resources simontype.ResourceTypes
+
 	for _, f := range files {
-		fileExtension := filepath.Ext(f)
-		if fileExtension != ".yaml" && fileExtension != ".yml" {
-			continue
-		}
-		yamlFile, err := ioutil.ReadFile(f)
-		if err != nil {
-			fmt.Printf("Error while read file %s: %s\n", f, err.Error())
-			os.Exit(1)
-		}
-
-		decode := scheme.Codecs.UniversalDeserializer().Decode
-		obj, _, err := decode(yamlFile, nil, nil)
-
-		if err != nil {
-			fmt.Printf("Error while decoding YAML object. Err was: %s", err)
-			os.Exit(1)
-		}
+		obj := DecodeYamlFile(f)
 
 		// now use switch over the type of the object and match each type-case
 		switch o := obj.(type) {
 		case *corev1.Node:
-			node = o
+			resources.Node = o
 		case *corev1.Pod:
-			pods = append(pods, MakeValidPodByPod(o))
+			resources.Pods = append(resources.Pods, o)
+		case *apps.DaemonSet:
+			resources.DaemonSets = append(resources.DaemonSets, o)
 		case *apps.StatefulSet:
-			pods = append(pods, MakeValidPodsByStatefulSet(o)...)
+			resources.StatefulSets = append(resources.StatefulSets, o)
 		case *apps.Deployment:
-			pods = append(pods, MakeValidPodsByDeployment(o)...)
+			resources.Deployments = append(resources.Deployments, o)
+		case *corev1.Service:
+			resources.Services = append(resources.Services, o)
+		case *corev1.PersistentVolumeClaim:
+			resources.PersistentVolumeClaims = append(resources.PersistentVolumeClaims, o)
+		case *corev1.ReplicationController:
+			resources.ReplicationControllers = append(resources.ReplicationControllers, o)
+		case *apps.ReplicaSet:
+			resources.ReplicaSets = append(resources.ReplicaSets, o)
+		case *v1.StorageClass:
+			resources.StorageClasss = append(resources.StorageClasss, o)
+		case *v1beta1.PodDisruptionBudget:
+			resources.PodDisruptionBudgets = append(resources.PodDisruptionBudgets, o)
 		default:
-			//o is unknown for us
-			fmt.Println("type is unknown for us")
+			fmt.Printf("type is unknown for us: %T\n", o)
 			continue
 		}
 	}
-	return node, pods
+	return resources
+}
+
+func DecodeYamlFile(file string) runtime.Object {
+	fileExtension := filepath.Ext(file)
+	if fileExtension != ".yaml" && fileExtension != ".yml" {
+		return nil
+	}
+	yamlFile, err := ioutil.ReadFile(file)
+	if err != nil {
+		fmt.Printf("Error while read file %s: %s\n", file, err.Error())
+		os.Exit(1)
+	}
+
+	decode := scheme.Codecs.UniversalDeserializer().Decode
+	obj, _, err := decode(yamlFile, nil, nil)
+
+	if err != nil {
+		fmt.Printf("Error while decoding YAML object. Err was: %s", err)
+		os.Exit(1)
+	}
+
+	return obj
 }
 
 func MakeValidPodsByDeployment(deploy *apps.Deployment) []*corev1.Pod {
@@ -145,14 +173,34 @@ func MakeValidPodsByStatefulSet(set *apps.StatefulSet) []*corev1.Pod {
 	return pods
 }
 
-func MakeValidPodByDaemonset(ds *apps.DaemonSet, nodeName string) *corev1.Pod {
+func MakeValidPodsByDaemonset(ds *apps.DaemonSet, nodes []*corev1.Node) []*corev1.Pod {
+	var pods []*corev1.Pod
+	for _, node := range nodes {
+		pod := NewDaemonPod(ds, node.Name)
+		shouldRun := NodeShouldRunDaemonPod(node, pod)
+		if shouldRun {
+			pods = append(pods, pod)
+		}
+	}
+	return pods
+}
+
+func NodeShouldRunDaemonPod(node *corev1.Node, pod *corev1.Pod) bool {
+	taints := node.Spec.Taints
+	fitsNodeName, fitsNodeAffinity, fitsTaints := daemon.Predicates(pod, node, taints)
+	if !fitsNodeName || !fitsNodeAffinity || !fitsTaints {
+		return false
+	}
+	return true
+}
+
+func NewDaemonPod(ds *apps.DaemonSet, nodeName string) *corev1.Pod {
 	pod, _ := controller.GetPodFromTemplate(&ds.Spec.Template, ds, nil)
 	pod.ObjectMeta.Name = fmt.Sprintf("fake-daemonset-%s-%s", ds.Name, nodeName)
 	pod.ObjectMeta.Namespace = ds.Namespace
 	pod = MakePodValid(pod)
 	pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindDaemonSet, ds.Name, pod.Namespace)
 	pod.Spec.NodeName = nodeName
-
 	return pod
 }
 

@@ -1,20 +1,18 @@
 package apply
 
 import (
+	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
-
-	"github.com/spf13/cobra"
-
-	"fmt"
 
 	"github.com/alibaba/open-simulator/pkg/algo"
 	"github.com/alibaba/open-simulator/pkg/simulator"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/alibaba/open-simulator/pkg/utils"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
@@ -82,7 +80,7 @@ func run(opt *Options) error {
 		}
 	}
 	// Step 2: check
-	node, pods := utils.GetObjectsFromFiles(filePaths)
+	resourceTypes := utils.GetObjectsFromFiles(filePaths)
 
 	// Step 3: get kube client
 	var cfg *restclient.Config
@@ -148,34 +146,40 @@ func run(opt *Options) error {
 	}
 
 	// Step 5: get result
-	fmt.Printf(string(utils.ColorCyan)+"There are %d pods to be scheduled\n"+string(utils.ColorReset), len(pods))
 	for i := 0; i < 100; i++ {
 		// 1: init simulator
-		fmt.Printf(string(utils.ColorYellow)+"add %d node(s)\n"+string(utils.ColorReset), i)
-		sim, err := simulator.New(kubeClient, cc)
+		sim, err := simulator.New(kubeClient, cc, resourceTypes)
 		if err != nil {
 			return err
 		}
 
 		// load resources from real to fake
-		if err := sim.SyncFakeCluster(true); err != nil {
+		if err := sim.SyncFakeCluster(); err != nil {
 			return err
 		}
+
 		// add fake nodes
-		if err := sim.AddFakeNode(i, node); err != nil {
+		if err := sim.AddFakeNode(i); err != nil {
+			return err
+		}
+
+		// sync the pods of daemonset
+		if err := sim.GenerateValidPodsFromResources(); err != nil {
 			return err
 		}
 
 		// 2: run simulator instance
 		if opt.UseBreed {
-			greed := algo.NewGreedQueue(sim.GetNodes(), pods)
+			greed := algo.NewGreedQueue(sim.GetNodes(), sim.GetPodsToBeSimulated())
 			sort.Sort(greed)
 			// tol := algo.NewTolerationQueue(pods)
 			// sort.Sort(tol)
 			// aff := algo.NewAffinityQueue(pods)
 			// sort.Sort(aff)
 		}
-		err = sim.Run(pods)
+
+		fmt.Printf(string(utils.ColorCyan)+"There are %d pods to be scheduled\n"+string(utils.ColorReset), len(sim.GetPodsToBeSimulated()))
+		err = sim.Run(sim.GetPodsToBeSimulated())
 		if err != nil {
 			return err
 		}
