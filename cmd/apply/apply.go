@@ -164,7 +164,7 @@ func run(opt *Options) error {
 		}
 
 		// sync the pods of daemonset
-		if err := sim.GeneratePodsFromResources(); err != nil {
+		if err := sim.GenerateValidPodsFromResources(); err != nil {
 			return err
 		}
 

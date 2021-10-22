@@ -52,7 +52,7 @@ type Simulator struct {
 	status Status
 
 	// resource from files
-	resourcesFromFiles simontype.ResourceTypes
+	simulationResources simontype.ResourceTypes
 }
 
 // capture all scheduled pods with reason why the analysis could not continue
@@ -70,14 +70,14 @@ func New(externalClient externalclientset.Interface, kubeSchedulerConfig *schedc
 
 	// Step 2: Create the simulator
 	sim := &Simulator{
-		externalclient:     externalClient,
-		fakeClient:         fakeClient,
-		simulatorStop:      make(chan struct{}),
-		informerFactory:    sharedInformerFactory,
-		ctx:                ctx,
-		cancelFunc:         cancel,
-		schedulerName:      simontype.DefaultSchedulerName,
-		resourcesFromFiles: resourcesFromFiles,
+		externalclient:      externalClient,
+		fakeClient:          fakeClient,
+		simulatorStop:       make(chan struct{}),
+		informerFactory:     sharedInformerFactory,
+		ctx:                 ctx,
+		cancelFunc:          cancel,
+		schedulerName:       simontype.DefaultSchedulerName,
+		simulationResources: resourcesFromFiles,
 	}
 
 	// Step 3: add event handler for pods
@@ -396,7 +396,7 @@ func (sim *Simulator) AddNodes(nodes []*corev1.Node) error {
 
 func (sim *Simulator) AddFakeNode(nodeCount int) error {
 	fmt.Printf(string(utils.ColorYellow)+"add %d node(s)\n"+string(utils.ColorReset), nodeCount)
-	if sim.resourcesFromFiles.Node == nil {
+	if sim.simulationResources.Node == nil {
 		return fmt.Errorf("node is nil")
 	}
 
@@ -404,7 +404,7 @@ func (sim *Simulator) AddFakeNode(nodeCount int) error {
 	for i := 0; i < nodeCount; i++ {
 		// create fake node
 		hostname := fmt.Sprintf("%s-%02d", simontype.FakeNodeNamePrefix, i)
-		node := utils.MakeValidNodeByNode(sim.resourcesFromFiles.Node, hostname)
+		node := utils.MakeValidNodeByNode(sim.simulationResources.Node, hostname)
 		metav1.SetMetaDataLabel(&node.ObjectMeta, "fake-node", "")
 		_, err := sim.fakeClient.CoreV1().Nodes().Create(context.Background(), node, metav1.CreateOptions{})
 		if err != nil {
@@ -541,11 +541,16 @@ func (sim *Simulator) SyncFakeCluster() error {
 	return nil
 }
 
-func (sim *Simulator) GeneratePodsFromResources() error {
+func (sim *Simulator) GenerateValidPodsFromResources() error {
 	var nodes []*corev1.Node
 	var fakenodes []*corev1.Node
 
-	sim.podsWithoutNodeNameCount = int64(len(sim.resourcesFromFiles.Pods))
+	sim.podsWithoutNodeNameCount = int64(len(sim.simulationResources.Pods))
+
+	//get valid pods
+	for i, item := range sim.simulationResources.Pods {
+		sim.simulationResources.Pods[i] = utils.MakeValidPodByPod(item)
+	}
 
 	// get all nodes
 	nodeItems, _ := sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
@@ -566,23 +571,23 @@ func (sim *Simulator) GeneratePodsFromResources() error {
 	for _, item := range daemonsets.Items {
 		newItem := item
 		newPods := utils.MakeValidPodsByDaemonset(&newItem, fakenodes)
-		sim.resourcesFromFiles.Pods = append(sim.resourcesFromFiles.Pods, newPods...)
+		sim.simulationResources.Pods = append(sim.simulationResources.Pods, newPods...)
 	}
-	for _, item := range sim.resourcesFromFiles.DaemonSets {
+	for _, item := range sim.simulationResources.DaemonSets {
 		newItem := item
 		newPods := utils.MakeValidPodsByDaemonset(newItem, nodes)
-		sim.resourcesFromFiles.Pods = append(sim.resourcesFromFiles.Pods, newPods...)
+		sim.simulationResources.Pods = append(sim.simulationResources.Pods, newPods...)
 	}
 
 	// get all pods from deployment
-	for _, deploy := range sim.resourcesFromFiles.Deployments {
-		sim.resourcesFromFiles.Pods = append(sim.resourcesFromFiles.Pods, utils.MakeValidPodsByDeployment(deploy)...)
+	for _, deploy := range sim.simulationResources.Deployments {
+		sim.simulationResources.Pods = append(sim.simulationResources.Pods, utils.MakeValidPodsByDeployment(deploy)...)
 		sim.podsWithoutNodeNameCount += int64(len(utils.MakeValidPodsByDeployment(deploy)))
 	}
 
 	// get all pods from statefulset
-	for _, sts := range sim.resourcesFromFiles.StatefulSets {
-		sim.resourcesFromFiles.Pods = append(sim.resourcesFromFiles.Pods, utils.MakeValidPodsByStatefulSet(sts)...)
+	for _, sts := range sim.simulationResources.StatefulSets {
+		sim.simulationResources.Pods = append(sim.simulationResources.Pods, utils.MakeValidPodsByStatefulSet(sts)...)
 		sim.podsWithoutNodeNameCount += int64(len(utils.MakeValidPodsByStatefulSet(sts)))
 	}
 
@@ -590,7 +595,7 @@ func (sim *Simulator) GeneratePodsFromResources() error {
 }
 
 func (sim *Simulator) GetPodsToBeSimulated() []*corev1.Pod {
-	return sim.resourcesFromFiles.Pods
+	return sim.simulationResources.Pods
 }
 
 func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) error {
