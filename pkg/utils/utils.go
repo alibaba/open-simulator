@@ -90,7 +90,7 @@ func GetObjectsFromFiles(files []string) simontype.ResourceTypes {
 		case *corev1.Node:
 			resources.Node = o
 		case *corev1.Pod:
-			resources.Pods = append(resources.Pods, MakeValidPodByPod(o))
+			resources.Pods = append(resources.Pods, o)
 		case *apps.DaemonSet:
 			resources.DaemonSets = append(resources.DaemonSets, o)
 		case *apps.StatefulSet:
