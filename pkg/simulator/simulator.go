@@ -417,7 +417,7 @@ func (sim *Simulator) AddFakeNode(nodeCount int) error {
 	return nil
 }
 
-// SyncFakeCluster synchronize cluster information to fake(simulative) cluster by kube-client or cluster configuration files
+// SyncFakeCluster synchronize cluster information to fake(simulated) cluster by kube-client or cluster configuration files
 func (sim *Simulator) SyncFakeCluster(clusterConfigPath string) error {
 	var resourceList simontype.ResourceTypes
 	var err error
