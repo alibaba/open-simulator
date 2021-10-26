@@ -531,12 +531,11 @@ func (sim *Simulator) SyncFakeCluster(clusterConfigPath string) error {
 }
 
 func (sim *Simulator) genResourceListFromClusterConfig(path string) (simontype.ResourceTypes, error) {
-	var resourceList simontype.ResourceTypes
-	paths, err := utils.ParseFilePath(path)
-	if err != nil {
+	var filePaths  []string
+	if err := utils.ParseFilePath(path, &filePaths); err != nil {
 		return simontype.ResourceTypes{}, fmt.Errorf("Failed to parse the cluster config path: %v ", err)
 	}
-	err = utils.GetObjectsFromFiles(paths, &resourceList)
+	resourceList, err := utils.GetObjectsFromFiles(filePaths)
 	if err != nil {
 		return simontype.ResourceTypes{}, err
 	}
@@ -545,6 +544,7 @@ func (sim *Simulator) genResourceListFromClusterConfig(path string) (simontype.R
 	for _, item := range resourceList.DaemonSets {
 		resourceList.Pods = append(resourceList.Pods, utils.MakeValidPodsByDaemonset(item, resourceList.Nodes)...)
 	}
+
 	return resourceList, nil
 }
 

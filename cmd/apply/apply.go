@@ -48,23 +48,31 @@ func init() {
 }
 
 func run(opts *Options) error {
-	var resources simontype.ResourceTypes
+	var appFilePaths []string
 
 	// Step 0: check args
-	if err := opts.ArgsValidation(); err != nil {
+	// TODO
+	if err := opts.checkArgs(); err != nil {
 		return fmt.Errorf("Args Error: %v ", err)
 	}
 
-	// Step 1: convert a directory into a series of file or subordinate paths
-	appFilePaths, err := utils.ParseFilePath(opts.AppConfig)
+	// Step 1: convert recursively a directory into a series of file or subordinate paths
+	err := utils.ParseFilePath(opts.AppConfig, &appFilePaths)
 	if err != nil {
 		return fmt.Errorf("Failed to parse the application config path: %v ", err)
 	}
 
-	// Step 2: convert recursively yml or yaml file to kubernetes resources
-	if err := utils.GetObjectsFromFiles(appFilePaths, &resources); err != nil {
+	// Step 2: convert yml or yaml file of the application files to kubernetes resources
+	resources, err := utils.GetObjectsFromFiles(appFilePaths)
+	if err != nil {
 		return fmt.Errorf("%v", err)
 	}
+	//Field resources.Nodes will be a slice that only exists one node for the application configuration files
+	//Field resources.Nodes will be a slice that exists one node at least for the cluster configuration files
+	if len(resources.Nodes) != 1 {
+		return fmt.Errorf("The number of nodes for the application files is not only one ")
+	}
+
 
 	// Step 3: generate kube-client
 	kubeClient, err := generateKubeClient(opts.KubeConfig)
@@ -138,10 +146,10 @@ func run(opts *Options) error {
 	return nil
 }
 
-// ArgsValidation checks whether parameters are valid
-func (opts *Options) ArgsValidation() error {
-	if opts.KubeConfig == "" && opts.ClusterConfig == "" {
-		return fmt.Errorf("one of values of both kube-config and cluster-config must exist")
+// checkArgs checks whether parameters are valid
+func (opts *Options) checkArgs() error {
+	if len(opts.KubeConfig) == 0 && len(opts.ClusterConfig) == 0 || len(opts.KubeConfig) !=0 && len(opts.ClusterConfig) != 0 {
+		return fmt.Errorf("only one of values of both kube-config and cluster-config must exist")
 	}
 
 	if opts.KubeConfig != "" {

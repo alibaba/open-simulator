@@ -19,9 +19,8 @@ build:
 	GO111MODULE=$(GO111MODULE) GOARCH=$(GOARCH) GOOS=$(GOOS) CGO_ENABLED=0 go build -trimpath $(LD_FLAGS) -v -o $(OUTPUT_DIR)/$(BINARY_NAME) ./cmd
 	# chmod +x $(OUTPUT_DIR)/$(BINARY_NAME)
 	# bin/simon debug -f ./example/
-	# bin/simon apply --cluster-config=./example/cluster_example -f ./example/simple_example_by_huizhi
-	# bin/simon apply --cluster-config=./example/cluster_example -f ./example/complicated_example_by_huizhi
-	# bin/simon apply --cluster-config=./example/cluster_example -f ./example/more_pods_by_huizhi
+	# bin/simon apply --cluster-config=./example/cluster_example/cluster_demo_1 -f ./example/application_example/simple_example_by_huizhi
+	# bin/simon apply --kube-config=./kubeconfig -f ./example/application_example/complicated_example_by_huizhi
 
 .PHONY: test 
 test:

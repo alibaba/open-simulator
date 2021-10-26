@@ -36,52 +36,42 @@ const (
 	FakeNode             = "fake-node"
 )
 
-// ParseFilePath converts directory path to a slice of file paths
-func ParseFilePath(path string) ([]string, error) {
-	var filePaths []string
+// ParseFilePath converts recursively directory path to a slice of file paths
+func ParseFilePath(path string, filePaths *[]string) error {
 	fi, err := os.Stat(path)
 	if err != nil {
-		return nil, err
+		return err
 	}
+
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
 		files, err := ioutil.ReadDir(path)
 		if err != nil {
-			return nil, err
-		}
-		for _, f := range files {
-			filePaths = append(filePaths, filepath.Join(path, f.Name()))
-		}
-	case mode.IsRegular():
-		filePaths = append(filePaths, path)
-	default:
-		return nil, fmt.Errorf("invalid path")
-	}
-	return filePaths, nil
-}
-
-// GetObjectsFromFiles converts recursively yml or yaml file to kubernetes resources
-func GetObjectsFromFiles(files []string, resources *simontype.ResourceTypes) error {
-	for _, f := range files {
-		fi, err := os.Stat(f)
-		if err != nil {
 			return err
 		}
-		if fi.Mode().IsDir() {
-			subFiles, err := ParseFilePath(f)
+		for _, f := range files {
+			p := filepath.Join(path, f.Name())
+			err = ParseFilePath(p, filePaths)
 			if err != nil {
 				return err
 			}
-			err = GetObjectsFromFiles(subFiles, resources)
-			if err != nil {
-				return err
-			}
-			continue
 		}
+	case mode.IsRegular():
+		*filePaths = append(*filePaths, path)
+		return nil
+	default:
+		return fmt.Errorf("invalid path: %s", path)
+	}
 
+	return nil
+}
+
+// GetObjectsFromFiles converts yml or yaml file to kubernetes resources
+func GetObjectsFromFiles(filePaths []string) (simontype.ResourceTypes, error) {
+	var resources simontype.ResourceTypes
+
+	for _, f := range filePaths {
 		obj := DecodeYamlFile(f)
-		//Field resources.Nodes will be a slice that only exists a node for the application configuration files
-		//Field resources.Nodes will be a slice that exists a node at least for the cluster configuration files
 		switch o := obj.(type) {
 		case nil:
 			continue
@@ -112,7 +102,7 @@ func GetObjectsFromFiles(files []string, resources *simontype.ResourceTypes) err
 			continue
 		}
 	}
-	return nil
+	return resources, nil
 }
 
 // DecodeYamlFile captures the yml or yaml file, and decodes it
