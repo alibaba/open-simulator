@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"reflect"
 	"time"
 
 	simontype "github.com/alibaba/open-simulator/pkg/type"
@@ -52,14 +53,15 @@ type Simulator struct {
 	status Status
 
 	// resource from files
-	simulativeResources simontype.ResourceTypes
+	simulationResources simontype.ResourceTypes
 }
 
-// capture all scheduled pods with reason why the analysis could not continue
+// Status captures reason why one pod fails to be scheduled
 type Status struct {
 	StopReason string
 }
 
+// New generates all components that will be needed to simulate scheduling and returns a complete simulator
 func New(externalClient externalclientset.Interface, kubeSchedulerConfig *schedconfig.CompletedConfig, resourcesFromFiles simontype.ResourceTypes) (*Simulator, error) {
 	var err error
 	ctx, cancel := context.WithCancel(context.Background())
@@ -77,7 +79,7 @@ func New(externalClient externalclientset.Interface, kubeSchedulerConfig *schedc
 		ctx:                 ctx,
 		cancelFunc:          cancel,
 		schedulerName:       simontype.DefaultSchedulerName,
-		simulativeResources: resourcesFromFiles,
+		simulationResources: resourcesFromFiles,
 	}
 
 	// Step 3: add event handler for pods
@@ -135,6 +137,7 @@ func New(externalClient externalclientset.Interface, kubeSchedulerConfig *schedc
 	return sim, nil
 }
 
+// Run starts to schedule pods
 func (sim *Simulator) Run(pods []*corev1.Pod) error {
 	// Step 1: start all informers.
 	sim.informerFactory.Start(sim.ctx.Done())
@@ -396,7 +399,7 @@ func (sim *Simulator) AddNodes(nodes []*corev1.Node) error {
 
 func (sim *Simulator) AddFakeNode(nodeCount int) error {
 	fmt.Printf(string(utils.ColorYellow)+"add %d node(s)\n"+string(utils.ColorReset), nodeCount)
-	if sim.simulativeResources.Node == nil {
+	if sim.simulationResources.Nodes == nil {
 		return fmt.Errorf("node is nil")
 	}
 
@@ -404,7 +407,7 @@ func (sim *Simulator) AddFakeNode(nodeCount int) error {
 	for i := 0; i < nodeCount; i++ {
 		// create fake node
 		hostname := fmt.Sprintf("%s-%02d", simontype.FakeNodeNamePrefix, i)
-		node := utils.MakeValidNodeByNode(sim.simulativeResources.Node, hostname)
+		node := utils.MakeValidNodeByNode(sim.simulationResources.Nodes[0], hostname)
 		metav1.SetMetaDataLabel(&node.ObjectMeta, "fake-node", "")
 		_, err := sim.fakeClient.CoreV1().Nodes().Create(context.Background(), node, metav1.CreateOptions{})
 		if err != nil {
@@ -414,127 +417,212 @@ func (sim *Simulator) AddFakeNode(nodeCount int) error {
 	return nil
 }
 
-func (sim *Simulator) SyncFakeCluster() error {
+// SyncFakeCluster synchronize cluster information to fake(simulative) cluster by kube-client or cluster configuration files
+func (sim *Simulator) SyncFakeCluster(clusterConfigPath string) error {
+	var resourceList simontype.ResourceTypes
+	var err error
+	if !reflect.ValueOf(sim.externalclient).IsZero() {
+		nodeItems, err := sim.externalclient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("unable to list nodes: %v", err)
+		}
+		for _, item := range nodeItems.Items {
+			newItem := item
+			resourceList.Nodes = append(resourceList.Nodes, &newItem)
+		}
 
-	// sync nodes
-	nodeItems, err := sim.externalclient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("unable to list nodes: %v", err)
+		podItems, err := sim.externalclient.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("unable to list pods: %v", err)
+		}
+		for _, item := range podItems.Items {
+			newItem := item
+			resourceList.Pods = append(resourceList.Pods, &newItem)
+		}
+
+		pdbItems, err := sim.externalclient.PolicyV1beta1().PodDisruptionBudgets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("unable to list PDBs: %v", err)
+		}
+		for _, item := range pdbItems.Items {
+			newItem := item
+			resourceList.PodDisruptionBudgets = append(resourceList.PodDisruptionBudgets, &newItem)
+		}
+
+		serviceItems, err := sim.externalclient.CoreV1().Services(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("unable to list services: %v", err)
+		}
+		for _, item := range serviceItems.Items {
+			newItem := item
+			resourceList.Services = append(resourceList.Services, &newItem)
+		}
+
+		storageClassesItems, err := sim.externalclient.StorageV1().StorageClasses().List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("unable to list storage classes: %v", err)
+		}
+		for _, item := range storageClassesItems.Items {
+			newItem := item
+			resourceList.StorageClasss = append(resourceList.StorageClasss, &newItem)
+		}
+
+		pvcItems, err := sim.externalclient.CoreV1().PersistentVolumeClaims(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("unable to list pvcs: %v", err)
+		}
+		for _, item := range pvcItems.Items {
+			newItem := item
+			resourceList.PersistentVolumeClaims = append(resourceList.PersistentVolumeClaims, &newItem)
+		}
+
+		rcItems, err := sim.externalclient.CoreV1().ReplicationControllers(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("unable to list RCs: %v", err)
+		}
+		for _, item := range rcItems.Items {
+			newItem := item
+			resourceList.ReplicationControllers = append(resourceList.ReplicationControllers, &newItem)
+		}
+
+		deploymentItems, err := sim.externalclient.AppsV1().Deployments(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("unable to list deployment: %v", err)
+		}
+		for _, item := range deploymentItems.Items {
+			newItem := item
+			resourceList.Deployments = append(resourceList.Deployments, &newItem)
+		}
+
+		replicaSetItems, err := sim.externalclient.AppsV1().ReplicaSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("unable to list replicas sets: %v", err)
+		}
+		for _, item := range replicaSetItems.Items {
+			newItem := item
+			resourceList.ReplicaSets = append(resourceList.ReplicaSets, &newItem)
+		}
+
+		statefulSetItems, err := sim.externalclient.AppsV1().StatefulSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("unable to list stateful sets: %v", err)
+		}
+		for _, item := range statefulSetItems.Items {
+			newItem := item
+			resourceList.StatefulSets = append(resourceList.StatefulSets, &newItem)
+		}
+
+		daemonSetItems, err := sim.externalclient.AppsV1().DaemonSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("unable to list daemon sets: %v", err)
+		}
+		for _, item := range daemonSetItems.Items {
+			newItem := item
+			metav1.SetMetaDataLabel(&newItem.ObjectMeta, utils.DaemonSetFromCluster, "")
+			resourceList.DaemonSets= append(resourceList.DaemonSets, &newItem)
+		}
+	} else {
+		resourceList, err = sim.genResourceListFromClusterConfig(clusterConfigPath)
+		if err != nil {
+			return fmt.Errorf("Failed to generate resource list from cluster config: %v ", err)
+		}
 	}
-	for _, item := range nodeItems.Items {
-		if _, err := sim.fakeClient.CoreV1().Nodes().Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
+	return sim.syncResourceList(resourceList)
+}
+
+func (sim *Simulator) genResourceListFromClusterConfig(path string) (simontype.ResourceTypes, error) {
+	var resourceList simontype.ResourceTypes
+	paths, err := utils.ParseFilePath(path)
+	if err != nil {
+		return simontype.ResourceTypes{}, fmt.Errorf("Failed to parse the cluster config path: %v ", err)
+	}
+	err = utils.GetObjectsFromFiles(paths, &resourceList)
+	if err != nil {
+		return simontype.ResourceTypes{}, err
+	}
+
+	utils.GetValidPodExcludeDaemonSet(&resourceList)
+	for _, item := range resourceList.DaemonSets {
+		resourceList.Pods = append(resourceList.Pods, utils.MakeValidPodsByDaemonset(item, resourceList.Nodes)...)
+	}
+	return resourceList, nil
+}
+
+func (sim *Simulator) syncResourceList(resourceList simontype.ResourceTypes) error {
+	//sync node
+	for _, item := range resourceList.Nodes {
+		if _, err := sim.fakeClient.CoreV1().Nodes().Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy node: %v", err)
 		}
 	}
 
-	// sync pods
-	podItems, err := sim.externalclient.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("unable to list pods: %v", err)
-	}
-	for _, item := range podItems.Items {
-		if _, err := sim.fakeClient.CoreV1().Pods(item.Namespace).Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
+	//sync pod
+	for _, item := range resourceList.Pods {
+		if _, err := sim.fakeClient.CoreV1().Pods(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy pod: %v", err)
 		}
 	}
 
-	// sync pdb
-	pdbItems, err := sim.externalclient.PolicyV1beta1().PodDisruptionBudgets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("unable to list PDBs: %v", err)
-	}
-	for _, item := range pdbItems.Items {
-		if _, err := sim.fakeClient.PolicyV1beta1().PodDisruptionBudgets(item.Namespace).Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
+	//sync pdb
+	for _, item := range resourceList.PodDisruptionBudgets {
+		if _, err := sim.fakeClient.PolicyV1beta1().PodDisruptionBudgets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy PDB: %v", err)
 		}
 	}
 
-	// sync svc
-	serviceItems, err := sim.externalclient.CoreV1().Services(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("unable to list services: %v", err)
-	}
-	for _, item := range serviceItems.Items {
-		if _, err := sim.fakeClient.CoreV1().Services(item.Namespace).Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
+	//sync svc
+	for _, item := range resourceList.Services {
+		if _, err := sim.fakeClient.CoreV1().Services(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy service: %v", err)
 		}
 	}
 
-	// sync sc
-	storageClassesItems, err := sim.externalclient.StorageV1().StorageClasses().List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("unable to list storage classes: %v", err)
-	}
-	for _, item := range storageClassesItems.Items {
-		if _, err := sim.fakeClient.StorageV1().StorageClasses().Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
+	//sync storage class
+	for _, item := range resourceList.StorageClasss {
+		if _, err := sim.fakeClient.StorageV1().StorageClasses().Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy storage class: %v", err)
 		}
 	}
 
-	// sync pvc
-	pvcItems, err := sim.externalclient.CoreV1().PersistentVolumeClaims(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("unable to list pvcs: %v", err)
-	}
-	for _, item := range pvcItems.Items {
-		if _, err := sim.fakeClient.CoreV1().PersistentVolumeClaims(item.Namespace).Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
+	//sync pvc
+	for _, item := range resourceList.PersistentVolumeClaims {
+		if _, err := sim.fakeClient.CoreV1().PersistentVolumeClaims(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy pvc: %v", err)
 		}
 	}
 
-	// sync rc
-	rcItems, err := sim.externalclient.CoreV1().ReplicationControllers(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("unable to list RCs: %v", err)
-	}
-	for _, item := range rcItems.Items {
-		if _, err := sim.fakeClient.CoreV1().ReplicationControllers(item.Namespace).Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
+	//sync rc
+	for _, item := range resourceList.ReplicationControllers {
+		if _, err := sim.fakeClient.CoreV1().ReplicationControllers(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy RC: %v", err)
 		}
 	}
 
-	// sync deployment
-	deploymentItems, err := sim.externalclient.AppsV1().Deployments(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("unable to list deployment: %v", err)
-	}
-	for _, item := range deploymentItems.Items {
-		if _, err := sim.fakeClient.AppsV1().Deployments(item.Namespace).Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
+	//sync deployment
+	for _, item := range resourceList.Deployments {
+		if _, err := sim.fakeClient.AppsV1().Deployments(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy deployment: %v", err)
 		}
 	}
 
-	// sync replicaSet
-	replicaSetItems, err := sim.externalclient.AppsV1().ReplicaSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("unable to list replicas sets: %v", err)
-	}
-	for _, item := range replicaSetItems.Items {
-		if _, err := sim.fakeClient.AppsV1().ReplicaSets(item.Namespace).Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
+	//sync rs
+	for _, item := range resourceList.ReplicaSets {
+		if _, err := sim.fakeClient.AppsV1().ReplicaSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy replica set: %v", err)
 		}
 	}
 
-	// sync statefulSet
-	statefulSetItems, err := sim.externalclient.AppsV1().StatefulSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("unable to list stateful sets: %v", err)
-	}
-	for _, item := range statefulSetItems.Items {
-		if _, err := sim.fakeClient.AppsV1().StatefulSets(item.Namespace).Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
+	//sync statefulset
+	for _, item := range resourceList.StatefulSets {
+		if _, err := sim.fakeClient.AppsV1().StatefulSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy stateful set: %v", err)
 		}
 	}
 
-	// sync daemonSet
-	daemonSetItems, err := sim.externalclient.AppsV1().DaemonSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("unable to list daemon sets: %v", err)
-	}
-	for _, item := range daemonSetItems.Items {
-		metav1.SetMetaDataLabel(&item.ObjectMeta, "daemonset-from-cluster", "")
-		if _, err := sim.fakeClient.AppsV1().DaemonSets(item.Namespace).Create(context.TODO(), &item, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("unable to copy the cluster daemon set: %v", err)
+	//sync daemonset
+	for _, item := range resourceList.DaemonSets {
+		if _, err := sim.fakeClient.AppsV1().DaemonSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("unable to copy daemon set: %v", err)
 		}
 	}
 
@@ -542,15 +630,11 @@ func (sim *Simulator) SyncFakeCluster() error {
 }
 
 func (sim *Simulator) GenerateValidPodsFromResources() error {
-	var nodes []*corev1.Node
-	var fakenodes []*corev1.Node
+	utils.GetValidPodExcludeDaemonSet(&sim.simulationResources)
 
-	sim.podsWithoutNodeNameCount = int64(len(sim.simulativeResources.Pods))
-
-	//get valid pods
-	for i, item := range sim.simulativeResources.Pods {
-		sim.simulativeResources.Pods[i] = utils.MakeValidPodByPod(item)
-	}
+	// DaemonSet will match with special nodes so it needs to be handled separately
+	var nodes     []*corev1.Node
+	var fakeNodes []*corev1.Node
 
 	// get all nodes
 	nodeItems, _ := sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
@@ -559,43 +643,37 @@ func (sim *Simulator) GenerateValidPodsFromResources() error {
 		nodes = append(nodes, &newItem)
 	}
 	// get all fake nodes
-	fakenodes = []*corev1.Node{}
 	nodeItems, _ = sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: utils.FakeNode})
 	for _, item := range nodeItems.Items {
 		newItem := item
-		fakenodes = append(fakenodes, &newItem)
+		fakeNodes = append(fakeNodes, &newItem)
 	}
 
 	// get all pods from daemonset
 	daemonsets, _ := sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{LabelSelector: utils.DaemonSetFromCluster})
 	for _, item := range daemonsets.Items {
 		newItem := item
-		newPods := utils.MakeValidPodsByDaemonset(&newItem, fakenodes)
-		sim.simulativeResources.Pods = append(sim.simulativeResources.Pods, newPods...)
+		sim.simulationResources.Pods = append(sim.simulationResources.Pods, utils.MakeValidPodsByDaemonset(&newItem, fakeNodes)...)
 	}
-	for _, item := range sim.simulativeResources.DaemonSets {
+	for _, item := range sim.simulationResources.DaemonSets {
 		newItem := item
-		newPods := utils.MakeValidPodsByDaemonset(newItem, nodes)
-		sim.simulativeResources.Pods = append(sim.simulativeResources.Pods, newPods...)
-	}
-
-	// get all pods from deployment
-	for _, deploy := range sim.simulativeResources.Deployments {
-		sim.simulativeResources.Pods = append(sim.simulativeResources.Pods, utils.MakeValidPodsByDeployment(deploy)...)
-		sim.podsWithoutNodeNameCount += int64(len(utils.MakeValidPodsByDeployment(deploy)))
-	}
-
-	// get all pods from statefulset
-	for _, sts := range sim.simulativeResources.StatefulSets {
-		sim.simulativeResources.Pods = append(sim.simulativeResources.Pods, utils.MakeValidPodsByStatefulSet(sts)...)
-		sim.podsWithoutNodeNameCount += int64(len(utils.MakeValidPodsByStatefulSet(sts)))
+		sim.simulationResources.Pods = append(sim.simulationResources.Pods, utils.MakeValidPodsByDaemonset(newItem, nodes)...)
 	}
 
 	return nil
 }
 
+func (sim *Simulator) CountPodsWithoutNodeName() {
+	sim.podsWithoutNodeNameCount = 0
+	for _, item := range sim.simulationResources.Pods {
+		if item.Spec.NodeName == "" {
+			sim.podsWithoutNodeNameCount++
+		}
+	}
+}
+
 func (sim *Simulator) GetPodsToBeSimulated() []*corev1.Pod {
-	return sim.simulativeResources.Pods
+	return sim.simulationResources.Pods
 }
 
 func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) error {

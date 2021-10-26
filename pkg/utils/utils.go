@@ -36,6 +36,108 @@ const (
 	FakeNode             = "fake-node"
 )
 
+// ParseFilePath converts directory path to a slice of file paths
+func ParseFilePath(path string) ([]string, error) {
+	var filePaths []string
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	switch mode := fi.Mode(); {
+	case mode.IsDir():
+		files, err := ioutil.ReadDir(path)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range files {
+			filePaths = append(filePaths, filepath.Join(path, f.Name()))
+		}
+	case mode.IsRegular():
+		filePaths = append(filePaths, path)
+	default:
+		return nil, fmt.Errorf("invalid path")
+	}
+	return filePaths, nil
+}
+
+// GetObjectsFromFiles converts recursively yml or yaml file to kubernetes resources
+func GetObjectsFromFiles(files []string, resources *simontype.ResourceTypes) error {
+	for _, f := range files {
+		fi, err := os.Stat(f)
+		if err != nil {
+			return err
+		}
+		if fi.Mode().IsDir() {
+			subFiles, err := ParseFilePath(f)
+			if err != nil {
+				return err
+			}
+			err = GetObjectsFromFiles(subFiles, resources)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+
+		obj := DecodeYamlFile(f)
+		//Field resources.Nodes will be a slice that only exists a node for the application configuration files
+		//Field resources.Nodes will be a slice that exists a node at least for the cluster configuration files
+		switch o := obj.(type) {
+		case nil:
+			continue
+		case *corev1.Node:
+			resources.Nodes = append(resources.Nodes, o)
+		case *corev1.Pod:
+			resources.Pods = append(resources.Pods, o)
+		case *apps.DaemonSet:
+			resources.DaemonSets = append(resources.DaemonSets, o)
+		case *apps.StatefulSet:
+			resources.StatefulSets = append(resources.StatefulSets, o)
+		case *apps.Deployment:
+			resources.Deployments = append(resources.Deployments, o)
+		case *corev1.Service:
+			resources.Services = append(resources.Services, o)
+		case *corev1.PersistentVolumeClaim:
+			resources.PersistentVolumeClaims = append(resources.PersistentVolumeClaims, o)
+		case *corev1.ReplicationController:
+			resources.ReplicationControllers = append(resources.ReplicationControllers, o)
+		case *apps.ReplicaSet:
+			resources.ReplicaSets = append(resources.ReplicaSets, o)
+		case *v1.StorageClass:
+			resources.StorageClasss = append(resources.StorageClasss, o)
+		case *v1beta1.PodDisruptionBudget:
+			resources.PodDisruptionBudgets = append(resources.PodDisruptionBudgets, o)
+		default:
+			fmt.Printf("unknown type: %T\n", o)
+			continue
+		}
+	}
+	return nil
+}
+
+// DecodeYamlFile captures the yml or yaml file, and decodes it
+func DecodeYamlFile(file string) runtime.Object {
+	fileExtension := filepath.Ext(file)
+	if fileExtension != ".yaml" && fileExtension != ".yml" {
+		return nil
+	}
+	yamlFile, err := ioutil.ReadFile(file)
+	if err != nil {
+		fmt.Printf("Error while read file %s: %s\n", file, err.Error())
+		os.Exit(1)
+	}
+
+	decode := scheme.Codecs.UniversalDeserializer().Decode
+	obj, _, err := decode(yamlFile, nil, nil)
+
+	if err != nil {
+		fmt.Printf("Error while decoding YAML object. Err was: %s", err)
+		os.Exit(1)
+	}
+
+	return obj
+}
+
 func GetMasterFromKubeConfig(filename string) (string, error) {
 	config, err := clientcmd.LoadFromFile(filename)
 	if err != nil {
@@ -79,64 +181,23 @@ func GetRecorderFactory(cc *schedconfig.CompletedConfig) profile.RecorderFactory
 	}
 }
 
-func GetObjectsFromFiles(files []string) simontype.ResourceTypes {
-	var resources simontype.ResourceTypes
+// GetValidPodExcludeDaemonSet gets valid pod by resources exclude DaemonSet that needs to be handled specially
+func GetValidPodExcludeDaemonSet(resources *simontype.ResourceTypes) {
 
-	for _, f := range files {
-		obj := DecodeYamlFile(f)
-
-		// now use switch over the type of the object and match each type-case
-		switch o := obj.(type) {
-		case *corev1.Node:
-			resources.Node = o
-		case *corev1.Pod:
-			resources.Pods = append(resources.Pods, o)
-		case *apps.DaemonSet:
-			resources.DaemonSets = append(resources.DaemonSets, o)
-		case *apps.StatefulSet:
-			resources.StatefulSets = append(resources.StatefulSets, o)
-		case *apps.Deployment:
-			resources.Deployments = append(resources.Deployments, o)
-		case *corev1.Service:
-			resources.Services = append(resources.Services, o)
-		case *corev1.PersistentVolumeClaim:
-			resources.PersistentVolumeClaims = append(resources.PersistentVolumeClaims, o)
-		case *corev1.ReplicationController:
-			resources.ReplicationControllers = append(resources.ReplicationControllers, o)
-		case *apps.ReplicaSet:
-			resources.ReplicaSets = append(resources.ReplicaSets, o)
-		case *v1.StorageClass:
-			resources.StorageClasss = append(resources.StorageClasss, o)
-		case *v1beta1.PodDisruptionBudget:
-			resources.PodDisruptionBudgets = append(resources.PodDisruptionBudgets, o)
-		default:
-			fmt.Printf("type is unknown for us: %T\n", o)
-			continue
-		}
-	}
-	return resources
-}
-
-func DecodeYamlFile(file string) runtime.Object {
-	fileExtension := filepath.Ext(file)
-	if fileExtension != ".yaml" && fileExtension != ".yml" {
-		return nil
-	}
-	yamlFile, err := ioutil.ReadFile(file)
-	if err != nil {
-		fmt.Printf("Error while read file %s: %s\n", file, err.Error())
-		os.Exit(1)
+	//get valid pods by pods
+	for i, item := range resources.Pods {
+		resources.Pods[i] = MakeValidPodByPod(item)
 	}
 
-	decode := scheme.Codecs.UniversalDeserializer().Decode
-	obj, _, err := decode(yamlFile, nil, nil)
-
-	if err != nil {
-		fmt.Printf("Error while decoding YAML object. Err was: %s", err)
-		os.Exit(1)
+	// get all pods from deployment
+	for _, deploy := range resources.Deployments {
+		resources.Pods = append(resources.Pods, MakeValidPodsByDeployment(deploy)...)
 	}
 
-	return obj
+	// get all pods from statefulset
+	for _, sts := range resources.StatefulSets {
+		resources.Pods = append(resources.Pods, MakeValidPodsByStatefulSet(sts)...)
+	}
 }
 
 func MakeValidPodsByDeployment(deploy *apps.Deployment) []*corev1.Pod {

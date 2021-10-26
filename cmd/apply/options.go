@@ -6,16 +6,18 @@ import (
 
 // Options is the combined set of options for all operating modes.
 type Options struct {
-	Kubeconfig                 string
+	KubeConfig                 string
+	ClusterConfig              string
+	AppConfig                  string
 	DefaultSchedulerConfigFile string
-	FilePath                   string
-	UseBreed                   bool
+	UseGreed                   bool
 }
 
 // AddFlags will add the flag to the pflag.FlagSet
 func (options *Options) AddFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&options.Kubeconfig, "kubeconfig", options.Kubeconfig, "Path to the kubeconfig file to use for the analysis.")
-	fs.StringVar(&options.DefaultSchedulerConfigFile, "default-scheduler-config", options.DefaultSchedulerConfigFile, "Path to JSON or YAML file containing scheduler configuration.")
-	fs.StringVarP(&options.FilePath, "filepath", "f", options.FilePath, "path that contains the configuration to apply")
-	fs.BoolVar(&options.UseBreed, "use-greed", true, "use greedy algorithm when queue pods")
+	fs.StringVar(&options.KubeConfig, "kube-config", options.KubeConfig, "path to the cluster kube-config file used to connect cluster, one of both kube-config and cluster-config must exist.")
+	fs.StringVar(&options.ClusterConfig,"cluster-config", options.ClusterConfig, "path to the directory of cluster configuration files to create a simulative cluster, one of both kube-config and cluster-config must exist.")
+	fs.StringVarP(&options.AppConfig, "app-config", "f", options.AppConfig, "path to the application configuration as simulation resources to be scheduled")
+	fs.StringVar(&options.DefaultSchedulerConfigFile, "default-scheduler-config", options.DefaultSchedulerConfigFile, "path to JSON or YAML file containing scheduler configuration.")
+	fs.BoolVar(&options.UseGreed, "use-greed", true, "use greedy algorithm when queue pods")
 }
