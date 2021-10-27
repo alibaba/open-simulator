@@ -531,17 +531,18 @@ func (sim *Simulator) SyncFakeCluster(clusterConfigPath string) error {
 }
 
 func (sim *Simulator) genResourceListFromClusterConfig(path string) (simontype.ResourceTypes, error) {
-	var filePaths  []string
-	if err := utils.ParseFilePath(path, &filePaths); err != nil {
+	clusterFilePaths, err := utils.ParseFilePath(path)
+	if err != nil {
 		return simontype.ResourceTypes{}, fmt.Errorf("Failed to parse the cluster config path: %v ", err)
 	}
-	resourceList, err := utils.GetObjectsFromFiles(filePaths)
+	resourceList, err := utils.GetObjectsFromFiles(clusterFilePaths)
 	if err != nil {
 		return simontype.ResourceTypes{}, err
 	}
 
 	utils.GetValidPodExcludeDaemonSet(&resourceList)
 	for _, item := range resourceList.DaemonSets {
+		metav1.SetMetaDataLabel(&item.ObjectMeta, utils.DaemonSetFromCluster, "")
 		resourceList.Pods = append(resourceList.Pods, utils.MakeValidPodsByDaemonset(item, resourceList.Nodes)...)
 	}
 

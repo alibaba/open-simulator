@@ -37,33 +37,34 @@ const (
 )
 
 // ParseFilePath converts recursively directory path to a slice of file paths
-func ParseFilePath(path string, filePaths *[]string) error {
+func ParseFilePath(path string) (filePaths []string, err error) {
 	fi, err := os.Stat(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
 		files, err := ioutil.ReadDir(path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, f := range files {
 			p := filepath.Join(path, f.Name())
-			err = ParseFilePath(p, filePaths)
+			subFiles, err := ParseFilePath(p)
 			if err != nil {
-				return err
+				return nil, err
 			}
+			filePaths = append(filePaths, subFiles...)
 		}
 	case mode.IsRegular():
-		*filePaths = append(*filePaths, path)
-		return nil
+		filePaths = append(filePaths, path)
+		return filePaths,nil
 	default:
-		return fmt.Errorf("invalid path: %s", path)
+		return nil, fmt.Errorf("invalid path: %s", path)
 	}
 
-	return nil
+	return filePaths,nil
 }
 
 // GetObjectsFromFiles converts yml or yaml file to kubernetes resources

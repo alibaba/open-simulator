@@ -48,16 +48,14 @@ func init() {
 }
 
 func run(opts *Options) error {
-	var appFilePaths []string
-
 	// Step 0: check args
 	// TODO
 	if err := opts.checkArgs(); err != nil {
 		return fmt.Errorf("Args Error: %v ", err)
 	}
 
-	// Step 1: convert recursively a directory into a series of file or subordinate paths
-	err := utils.ParseFilePath(opts.AppConfig, &appFilePaths)
+	// Step 1: convert recursively the application directory into a series of file paths
+	appFilePaths, err := utils.ParseFilePath(opts.AppConfig)
 	if err != nil {
 		return fmt.Errorf("Failed to parse the application config path: %v ", err)
 	}
