@@ -32,31 +32,31 @@ spec:
     - --trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt
     image: registry-internal.adp.aliyuncs.com:5000/oecp/etcd:3.4.3-0
     imagePullPolicy: IfNotPresent
-#    livenessProbe:
-#      failureThreshold: 8
-#      httpGet:
-#        host: 0.0.0.0
-#        path: /health
-#        port: 2381
-#        scheme: HTTP
-#      initialDelaySeconds: 10
-#      periodSeconds: 10
-#      timeoutSeconds: 15
+    livenessProbe:
+      failureThreshold: 8
+      httpGet:
+        host: 0.0.0.0
+        path: /health
+        port: 2381
+        scheme: HTTP
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 15
     name: etcd
     resources:
       requests:
         cpu: 100m
         memory: 100Mi
-#    startupProbe:
-#      failureThreshold: 24
-#      httpGet:
-#        host: 0.0.0.0
-#        path: /health
-#        port: 2381
-#        scheme: HTTP
-#      initialDelaySeconds: 10
-#      periodSeconds: 10
-#      timeoutSeconds: 15
+    startupProbe:
+      failureThreshold: 24
+      httpGet:
+        host: 0.0.0.0
+        path: /health
+        port: 2381
+        scheme: HTTP
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 15
     volumeMounts:
     - mountPath: /var/lib/etcd
       name: etcd-data

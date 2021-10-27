@@ -56,39 +56,39 @@ spec:
     - --tls-private-key-file=/etc/kubernetes/pki/apiserver.key
     image: registry-internal.adp.aliyuncs.com:5000/oecp/kube-apiserver:v1.20.4-aliyun.1
     imagePullPolicy: IfNotPresent
-#    livenessProbe:
-#      failureThreshold: 8
-#      httpGet:
-#        host: 172.16.200.162
-#        path: /livez
-#        port: 6443
-#        scheme: HTTPS
-#      initialDelaySeconds: 10
-#      periodSeconds: 10
-#      timeoutSeconds: 15
+    livenessProbe:
+      failureThreshold: 8
+      httpGet:
+        host: 172.16.200.162
+        path: /livez
+        port: 6443
+        scheme: HTTPS
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 15
     name: kube-apiserver
-#    readinessProbe:
-#      failureThreshold: 3
-#      httpGet:
-#        host: 172.16.200.162
-#        path: /readyz
-#        port: 6443
-#        scheme: HTTPS
-#      periodSeconds: 1
-#      timeoutSeconds: 15
+    readinessProbe:
+      failureThreshold: 3
+      httpGet:
+        host: 172.16.200.162
+        path: /readyz
+        port: 6443
+        scheme: HTTPS
+      periodSeconds: 1
+      timeoutSeconds: 15
     resources:
       requests:
         cpu: 250m
-#    startupProbe:
-#      failureThreshold: 24
-#      httpGet:
-#        host: 172.16.200.162
-#        path: /livez
-#        port: 6443
-#        scheme: HTTPS
-#      initialDelaySeconds: 10
-#      periodSeconds: 10
-#      timeoutSeconds: 15
+    startupProbe:
+      failureThreshold: 24
+      httpGet:
+        host: 172.16.200.162
+        path: /livez
+        port: 6443
+        scheme: HTTPS
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 15
     volumeMounts:
     - mountPath: /etc/kubernetes
       name: audit

@@ -34,28 +34,28 @@ spec:
     - --use-service-account-credentials=true
     image: registry-internal.adp.aliyuncs.com:5000/oecp/kube-controller-manager:v1.20.4-aliyun.1
     imagePullPolicy: IfNotPresent
-#    livenessProbe:
-#      failureThreshold: 8
-#      httpGet:
-#        path: /healthz
-#        port: 10257
-#        scheme: HTTPS
-#      initialDelaySeconds: 10
-#      periodSeconds: 10
-#      timeoutSeconds: 15
+    livenessProbe:
+      failureThreshold: 8
+      httpGet:
+        path: /healthz
+        port: 10257
+        scheme: HTTPS
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 15
     name: kube-controller-manager
     resources:
       requests:
         cpu: 200m
-#    startupProbe:
-#      failureThreshold: 24
-#      httpGet:
-#        path: /healthz
-#        port: 10257
-#        scheme: HTTPS
-#      initialDelaySeconds: 10
-#      periodSeconds: 10
-#      timeoutSeconds: 15
+    startupProbe:
+      failureThreshold: 24
+      httpGet:
+        path: /healthz
+        port: 10257
+        scheme: HTTPS
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 15
     volumeMounts:
     - mountPath: /etc/ssl/certs
       name: ca-certs

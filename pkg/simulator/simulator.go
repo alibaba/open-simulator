@@ -633,7 +633,7 @@ func (sim *Simulator) syncResourceList(resourceList simontype.ResourceTypes) err
 func (sim *Simulator) GenerateValidPodsFromResources() error {
 	utils.GetValidPodExcludeDaemonSet(&sim.simulationResources)
 
-	// DaemonSet will match with special nodes so it needs to be handled separately
+	// DaemonSet will match with specific nodes so it needs to be handled separately
 	var nodes     []*corev1.Node
 	var fakeNodes []*corev1.Node
 

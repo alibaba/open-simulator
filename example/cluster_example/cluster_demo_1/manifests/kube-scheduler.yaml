@@ -23,28 +23,28 @@ spec:
     - --profiling=false
     image: registry-internal.adp.aliyuncs.com:5000/oecp/kube-scheduler:v1.20.4-aliyun.1
     imagePullPolicy: IfNotPresent
-#    livenessProbe:
-#      failureThreshold: 8
-#      httpGet:
-#        path: /healthz
-#        port: 10259
-#        scheme: HTTPS
-#      initialDelaySeconds: 10
-#      periodSeconds: 10
-#      timeoutSeconds: 15
+    livenessProbe:
+      failureThreshold: 8
+      httpGet:
+        path: /healthz
+        port: 10259
+        scheme: HTTPS
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 15
     name: kube-scheduler
     resources:
       requests:
         cpu: 100m
-#    startupProbe:
-#      failureThreshold: 24
-#      httpGet:
-#        path: /healthz
-#        port: 10259
-#        scheme: HTTPS
-#      initialDelaySeconds: 10
-#      periodSeconds: 10
-#      timeoutSeconds: 15
+    startupProbe:
+      failureThreshold: 24
+      httpGet:
+        path: /healthz
+        port: 10259
+        scheme: HTTPS
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 15
     volumeMounts:
     - mountPath: /etc/kubernetes/scheduler.conf
       name: kubeconfig
