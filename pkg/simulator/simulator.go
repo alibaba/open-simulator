@@ -518,8 +518,8 @@ func (sim *Simulator) SyncFakeCluster(clusterConfigPath string) error {
 		}
 		for _, item := range daemonSetItems.Items {
 			newItem := item
-			metav1.SetMetaDataLabel(&newItem.ObjectMeta, utils.DaemonSetFromCluster, "")
-			resourceList.DaemonSets= append(resourceList.DaemonSets, &newItem)
+			metav1.SetMetaDataLabel(&newItem.ObjectMeta, simontype.LabelDaemonSetFromCluster, "")
+			resourceList.DaemonSets = append(resourceList.DaemonSets, &newItem)
 		}
 	} else {
 		resourceList, err = sim.genResourceListFromClusterConfig(clusterConfigPath)
@@ -542,7 +542,7 @@ func (sim *Simulator) genResourceListFromClusterConfig(path string) (simontype.R
 
 	utils.GetValidPodExcludeDaemonSet(&resourceList)
 	for _, item := range resourceList.DaemonSets {
-		metav1.SetMetaDataLabel(&item.ObjectMeta, utils.DaemonSetFromCluster, "")
+		metav1.SetMetaDataLabel(&item.ObjectMeta, simontype.LabelDaemonSetFromCluster, "")
 		resourceList.Pods = append(resourceList.Pods, utils.MakeValidPodsByDaemonset(item, resourceList.Nodes)...)
 	}
 
@@ -634,7 +634,7 @@ func (sim *Simulator) GenerateValidPodsFromResources() error {
 	utils.GetValidPodExcludeDaemonSet(&sim.simulationResources)
 
 	// DaemonSet will match with specific nodes so it needs to be handled separately
-	var nodes     []*corev1.Node
+	var nodes []*corev1.Node
 	var fakeNodes []*corev1.Node
 
 	// get all nodes
@@ -644,14 +644,14 @@ func (sim *Simulator) GenerateValidPodsFromResources() error {
 		nodes = append(nodes, &newItem)
 	}
 	// get all fake nodes
-	nodeItems, _ = sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: utils.FakeNode})
+	nodeItems, _ = sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: simontype.LabelFakeNode})
 	for _, item := range nodeItems.Items {
 		newItem := item
 		fakeNodes = append(fakeNodes, &newItem)
 	}
 
 	// get all pods from daemonset
-	daemonsets, _ := sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{LabelSelector: utils.DaemonSetFromCluster})
+	daemonsets, _ := sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{LabelSelector: simontype.LabelDaemonSetFromCluster})
 	for _, item := range daemonsets.Items {
 		newItem := item
 		sim.simulationResources.Pods = append(sim.simulationResources.Pods, utils.MakeValidPodsByDaemonset(&newItem, fakeNodes)...)

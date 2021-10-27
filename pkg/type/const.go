@@ -20,6 +20,9 @@ const (
 	AnnoWorkloadName      = "oecp.io/workload-name"
 	AnnoWorkloadNamespace = "oecp.io/workload-namespace"
 
+	LabelDaemonSetFromCluster = "daemonset-from-cluster"
+	LabelFakeNode             = "fake-node"
+
 	WorkloadKindDeployment  = "Deployment"
 	WorkloadKindStatefulSet = "StatefulSet"
 	WorkloadKindDaemonSet   = "DaemonSet"

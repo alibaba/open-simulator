@@ -31,11 +31,6 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/profile"
 )
 
-const (
-	DaemonSetFromCluster = "daemonset-from-cluster"
-	FakeNode             = "fake-node"
-)
-
 // ParseFilePath converts recursively directory path to a slice of file paths
 func ParseFilePath(path string) (filePaths []string, err error) {
 	fi, err := os.Stat(path)
@@ -59,12 +54,12 @@ func ParseFilePath(path string) (filePaths []string, err error) {
 		}
 	case mode.IsRegular():
 		filePaths = append(filePaths, path)
-		return filePaths,nil
+		return filePaths, nil
 	default:
 		return nil, fmt.Errorf("invalid path: %s", path)
 	}
 
-	return filePaths,nil
+	return filePaths, nil
 }
 
 // GetObjectsFromFiles converts yml or yaml file to kubernetes resources
@@ -310,9 +305,9 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 	}
 	// Probe may cause that pod can not pass the ValidatePod test
 	for i := range newPod.Spec.Containers {
-		newPod.Spec.Containers[i].LivenessProbe  = nil
+		newPod.Spec.Containers[i].LivenessProbe = nil
 		newPod.Spec.Containers[i].ReadinessProbe = nil
-		newPod.Spec.Containers[i].StartupProbe   = nil
+		newPod.Spec.Containers[i].StartupProbe = nil
 	}
 	// Add pod provisioner annotation
 	if newPod.ObjectMeta.Annotations == nil {
