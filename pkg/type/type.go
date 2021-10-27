@@ -8,7 +8,7 @@ import (
 )
 
 type ResourceTypes struct {
-	Node                   *corev1.Node
+	Nodes                  []*corev1.Node
 	Pods                   []*corev1.Pod
 	DaemonSets             []*apps.DaemonSet
 	StatefulSets           []*apps.StatefulSet

@@ -2,9 +2,7 @@ package apply
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
-	"path/filepath"
 	"sort"
 
 	"github.com/alibaba/open-simulator/pkg/algo"
@@ -20,6 +18,7 @@ import (
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/component-base/logs"
 	kubeschedulerconfigv1beta1 "k8s.io/kube-scheduler/config/v1beta1"
+	"k8s.io/kubernetes/cmd/kube-scheduler/app/config"
 	schedoptions "k8s.io/kubernetes/cmd/kube-scheduler/app/options"
 	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	kubeschedulerscheme "k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
@@ -41,78 +40,173 @@ var ApplyCmd = &cobra.Command{
 
 func init() {
 	options.AddFlags(ApplyCmd.Flags())
-	var err error
-	err = ApplyCmd.MarkFlagRequired("kubeconfig")
-	if err != nil {
-		log.Fatal("init ApplyCmd on kubeconfig failed")
-		return
-	}
-	err = ApplyCmd.MarkFlagRequired("filepath")
-	if err != nil {
-		log.Fatal("init ApplyCmd on filepath failed")
+
+	if err := ApplyCmd.MarkFlagRequired("app-config"); err != nil {
+		log.Fatal("init ApplyCmd on app-config flag failed")
 		return
 	}
 }
 
-func run(opt *Options) error {
-	// Step 0: variable declaration
-	var err error
-	var filePaths []string
-	// Step 1: determining whether path points to file or directory
-	if opt.FilePath != "" {
-		fi, err := os.Stat(opt.FilePath)
-		if err != nil {
-			return err
-		}
-		switch mode := fi.Mode(); {
-		case mode.IsDir():
-			files, err := ioutil.ReadDir(opt.FilePath)
-			if err != nil {
-				return err
-			}
-			for _, f := range files {
-				filePaths = append(filePaths, filepath.Join(opt.FilePath, f.Name()))
-			}
-		case mode.IsRegular():
-			filePaths = append(filePaths, opt.FilePath)
-		default:
-			return fmt.Errorf("path is invalid")
-		}
+func run(opts *Options) error {
+	// Step 0: check args
+	// TODO
+	if err := opts.checkArgs(); err != nil {
+		return fmt.Errorf("Args Error: %v ", err)
 	}
-	// Step 2: check
-	resourceTypes := utils.GetObjectsFromFiles(filePaths)
 
-	// Step 3: get kube client
-	var cfg *restclient.Config
-	if len(opt.Kubeconfig) != 0 {
-		master, err := utils.GetMasterFromKubeConfig(opt.Kubeconfig)
-		if err != nil {
-			return fmt.Errorf("Failed to parse kubeconfig file: %v ", err)
-		}
-
-		cfg, err = clientcmd.BuildConfigFromFlags(master, opt.Kubeconfig)
-		if err != nil {
-			return fmt.Errorf("Unable to build config: %v", err)
-		}
-	} else {
-		cfg, err = restclient.InClusterConfig()
-		if err != nil {
-			return fmt.Errorf("Unable to build in cluster config: %v", err)
-		}
+	// Step 1: convert recursively the application directory into a series of file paths
+	appFilePaths, err := utils.ParseFilePath(opts.AppConfig)
+	if err != nil {
+		return fmt.Errorf("Failed to parse the application config path: %v ", err)
 	}
-	kubeClient, err := clientset.NewForConfig(cfg)
+
+	// Step 2: convert yml or yaml file of the application files to kubernetes resources
+	resources, err := utils.GetObjectsFromFiles(appFilePaths)
+	if err != nil {
+		return fmt.Errorf("%v", err)
+	}
+	//Field resources.Nodes will be a slice that only exists one node for the application configuration files
+	//Field resources.Nodes will be a slice that exists one node at least for the cluster configuration files
+	if len(resources.Nodes) != 1 {
+		return fmt.Errorf("The number of nodes for the application files is not only one ")
+	}
+
+
+	// Step 3: generate kube-client
+	kubeClient, err := generateKubeClient(opts.KubeConfig)
+	if err != nil {
+		return fmt.Errorf("Failed to get kubeclient: %v ", err)
+	}
+
+	// Step 4: get scheduler CompletedConfig and set the list of scheduler bind plugins to Simon.
+	cc, err := getAndSetSchedulerConfig(opts.DefaultSchedulerConfigFile, opts.UseGreed)
 	if err != nil {
 		return err
 	}
 
-	// Step 4: get scheduler CompletedConfig.
-	// Important: set the list of scheduler bind plugins to Simon
+	// Step 5: get result
+	for i := 0; i < 100; i++ {
+		// 1: init simulator
+		sim, err := simulator.New(kubeClient, cc, resources)
+		if err != nil {
+			return err
+		}
+
+		// load resources from real to fake
+		if err := sim.SyncFakeCluster(opts.ClusterConfig); err != nil {
+			return err
+		}
+
+		// add fake nodes
+		if err := sim.AddFakeNode(i); err != nil {
+			return err
+		}
+
+		// sync the application pods
+		if err := sim.GenerateValidPodsFromResources(); err != nil {
+			return err
+		}
+
+		// count pod without nodeName
+		sim.CountPodsWithoutNodeName()
+
+		// sort pods
+		// TODO: These pods with nodeName have priority
+		if opts.UseGreed {
+			greed := algo.NewGreedQueue(sim.GetNodes(), sim.GetPodsToBeSimulated())
+			sort.Sort(greed)
+			// tol := algo.NewTolerationQueue(pods)
+			// sort.Sort(tol)
+			// aff := algo.NewAffinityQueue(pods)
+			// sort.Sort(aff)
+		}
+
+		fmt.Printf(utils.ColorCyan+"There are %d pods to be scheduled\n"+utils.ColorReset, len(sim.GetPodsToBeSimulated()))
+		err = sim.Run(sim.GetPodsToBeSimulated())
+		if err != nil {
+			return err
+		}
+
+		if sim.GetStatus() == simontype.StopReasonSuccess {
+			fmt.Println(utils.ColorGreen + "Success!")
+			sim.Report()
+			if err := sim.CreateConfigMapAndSaveItToFile(simontype.ConfigMapFileName); err != nil {
+				return err
+			}
+			break
+		} else {
+			fmt.Printf(utils.ColorRed+"Failed reason: %s\n"+utils.ColorReset, sim.GetStatus())
+		}
+
+		sim.Close()
+	}
+	fmt.Println(utils.ColorReset)
+	return nil
+}
+
+// checkArgs checks whether parameters are valid
+func (opts *Options) checkArgs() error {
+	if len(opts.KubeConfig) == 0 && len(opts.ClusterConfig) == 0 || len(opts.KubeConfig) !=0 && len(opts.ClusterConfig) != 0 {
+		return fmt.Errorf("only one of values of both kube-config and cluster-config must exist")
+	}
+
+	if opts.KubeConfig != "" {
+		if _, err := os.Stat(opts.KubeConfig); err != nil {
+			return fmt.Errorf("invalid path of kube-config: %v", err)
+		}
+	}
+
+	if opts.ClusterConfig != "" {
+		if _, err := os.Stat(opts.ClusterConfig); err != nil {
+			return fmt.Errorf("invalid path of cluster-config: %v", err)
+		}
+	}
+
+	if _, err := os.Stat(opts.AppConfig); err != nil {
+		return fmt.Errorf("invalid path of app-config: %v", err)
+	}
+
+	return nil
+}
+
+// generateKubeClient generates kube-client by kube-config. And if kube-config file is not provided, the value of kube-client will be nil
+func generateKubeClient(kubeConfigPath string) (*clientset.Clientset, error) {
+	if len(kubeConfigPath) == 0 {
+		return nil, nil
+	}
+
+	var err error
+	var cfg *restclient.Config
+	master, err := utils.GetMasterFromKubeConfig(kubeConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to parse kubeclient file: %v ", err)
+	}
+
+	cfg, err = clientcmd.BuildConfigFromFlags(master, kubeConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to build config: %v ", err)
+	}
+	//else {
+	//	cfg, err = restclient.InClusterConfig()
+	//	if err != nil {
+	//		return nil, fmt.Errorf("Unable to build in cluster config: %v ", err)
+	//	}
+	//}
+	kubeClient, err := clientset.NewForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return kubeClient, nil
+}
+
+// getAndSetSchedulerConfig gets scheduler CompletedConfig and sets the list of scheduler bind plugins to Simon.
+func getAndSetSchedulerConfig(defaultSchedulerConfigFile string, breed bool) (*config.CompletedConfig, error) {
 	versionedCfg := kubeschedulerconfigv1beta1.KubeSchedulerConfiguration{}
 	versionedCfg.DebuggingConfiguration = *configv1alpha1.NewRecommendedDebuggingConfiguration()
 	kubeschedulerscheme.Scheme.Default(&versionedCfg)
 	kcfg := kubeschedulerconfig.KubeSchedulerConfiguration{}
 	if err := kubeschedulerscheme.Scheme.Convert(&versionedCfg, &kcfg, nil); err != nil {
-		return err
+		return nil, err
 	}
 	if len(kcfg.Profiles) == 0 {
 		kcfg.Profiles = []kubeschedulerconfig.KubeSchedulerProfile{
@@ -124,7 +218,7 @@ func run(opt *Options) error {
 		kcfg.Profiles[0].Plugins = &kubeschedulerconfig.Plugins{}
 	}
 
-	if opt.UseBreed {
+	if breed {
 		kcfg.Profiles[0].Plugins.Score = &kubeschedulerconfig.PluginSet{
 			Enabled: []kubeschedulerconfig.Plugin{{Name: simontype.SimonPluginName}},
 		}
@@ -137,66 +231,12 @@ func run(opt *Options) error {
 	kcfg.PercentageOfNodesToScore = 100
 	opts := &schedoptions.Options{
 		ComponentConfig: kcfg,
-		ConfigFile:      opt.DefaultSchedulerConfigFile,
+		ConfigFile:      defaultSchedulerConfigFile,
 		Logs:            logs.NewOptions(),
 	}
 	cc, err := utils.InitKubeSchedulerConfiguration(opts)
 	if err != nil {
-		return fmt.Errorf("failed to init kube scheduler configuration: %v ", err)
+		return nil, fmt.Errorf("failed to init kube scheduler configuration: %v ", err)
 	}
-
-	// Step 5: get result
-	for i := 0; i < 100; i++ {
-		// 1: init simulator
-		sim, err := simulator.New(kubeClient, cc, resourceTypes)
-		if err != nil {
-			return err
-		}
-
-		// load resources from real to fake
-		if err := sim.SyncFakeCluster(); err != nil {
-			return err
-		}
-
-		// add fake nodes
-		if err := sim.AddFakeNode(i); err != nil {
-			return err
-		}
-
-		// sync the pods of daemonset
-		if err := sim.GenerateValidPodsFromResources(); err != nil {
-			return err
-		}
-
-		// 2: run simulator instance
-		if opt.UseBreed {
-			greed := algo.NewGreedQueue(sim.GetNodes(), sim.GetPodsToBeSimulated())
-			sort.Sort(greed)
-			// tol := algo.NewTolerationQueue(pods)
-			// sort.Sort(tol)
-			// aff := algo.NewAffinityQueue(pods)
-			// sort.Sort(aff)
-		}
-
-		fmt.Printf(string(utils.ColorCyan)+"There are %d pods to be scheduled\n"+string(utils.ColorReset), len(sim.GetPodsToBeSimulated()))
-		err = sim.Run(sim.GetPodsToBeSimulated())
-		if err != nil {
-			return err
-		}
-
-		if sim.GetStatus() == simontype.StopReasonSuccess {
-			fmt.Println(string(utils.ColorGreen) + "Success!")
-			sim.Report()
-			if err := sim.CreateConfigMapAndSaveItToFile(simontype.ConfigMapFileName); err != nil {
-				return err
-			}
-			break
-		} else {
-			fmt.Printf(string(utils.ColorRed)+"Failed reason: %s\n"+string(utils.ColorReset), sim.GetStatus())
-		}
-
-		sim.Close()
-	}
-	fmt.Println(string(utils.ColorReset))
-	return nil
+	return cc, nil
 }
