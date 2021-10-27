@@ -309,7 +309,7 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 		newPod.Spec.SchedulerName = simontype.DefaultSchedulerName
 	}
 	// Probe may cause that pod can not pass the ValidatePod test
-	for i, _ := range newPod.Spec.Containers {
+	for i := range newPod.Spec.Containers {
 		newPod.Spec.Containers[i].LivenessProbe  = nil
 		newPod.Spec.Containers[i].ReadinessProbe = nil
 		newPod.Spec.Containers[i].StartupProbe   = nil
