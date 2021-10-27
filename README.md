@@ -25,6 +25,7 @@
 执行命令
 
 真实集群: ./simon apply --kube-config=[kubeconfig文件目录] -f [待调度的yaml资源文件夹]
+
 模拟集群: ./simon apply --cluster-config=[clusterconfig文件目录] -f [待调度的yaml资源文件夹]
 
 Yaml文件夹可支持多级子目录，以区分资源类型，参考./example目录。目前支持以下资源类型，更多类型会在后续支持:
