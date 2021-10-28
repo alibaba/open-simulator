@@ -49,7 +49,6 @@ func init() {
 
 func run(opts *Options) error {
 	// Step 0: check args
-	// TODO
 	if err := opts.checkArgs(); err != nil {
 		return fmt.Errorf("Args Error: %v ", err)
 	}

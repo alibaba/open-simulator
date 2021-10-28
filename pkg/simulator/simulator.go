@@ -169,10 +169,12 @@ func (sim *Simulator) Run(pods []*corev1.Pod) error {
 	return nil
 }
 
+// GetStatus return StopReason
 func (sim *Simulator) GetStatus() string {
 	return sim.status.StopReason
 }
 
+// Report print out scheduling result of pods
 func (sim *Simulator) Report() {
 	// Step 1: report pod info
 	fmt.Println("Pod Info")
@@ -274,6 +276,7 @@ func (sim *Simulator) Report() {
 	nodeTable.Render() // Send output
 }
 
+// CreateConfigMapAndSaveItToFile will create a file to save results for later handling
 func (sim *Simulator) CreateConfigMapAndSaveItToFile(fileName string) error {
 	var resultDeployment map[string][]string = make(map[string][]string)
 	var resultStatefulment map[string][]string = make(map[string][]string)
@@ -338,6 +341,7 @@ func (sim *Simulator) CreateConfigMapAndSaveItToFile(fileName string) error {
 	return nil
 }
 
+// BindPodToNode bind pod to a node and trigger pod update event
 func (sim *Simulator) BindPodToNode(ctx context.Context, state *framework.CycleState, p *corev1.Pod, nodeName string, schedulerName string) *framework.Status {
 	// fmt.Printf("bind pod %s/%s to node %s\n", p.Namespace, p.Name, nodeName)
 	// Step 1: update pod info
@@ -362,6 +366,7 @@ func (sim *Simulator) BindPodToNode(ctx context.Context, state *framework.CycleS
 	return nil
 }
 
+// GetNodes return all nodes in cluster simulator
 func (sim *Simulator) GetNodes() []corev1.Node {
 	nodes, err := sim.fakeClient.CoreV1().Nodes().List(sim.ctx, metav1.ListOptions{})
 	if err != nil {
@@ -378,6 +383,7 @@ func (sim *Simulator) Close() {
 	}
 }
 
+// AddPods add pods
 func (sim *Simulator) AddPods(pods []*corev1.Pod) error {
 	for _, pod := range pods {
 		_, err := sim.fakeClient.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{})
@@ -388,6 +394,7 @@ func (sim *Simulator) AddPods(pods []*corev1.Pod) error {
 	return nil
 }
 
+// AddNodes add nodes
 func (sim *Simulator) AddNodes(nodes []*corev1.Node) error {
 	for _, node := range nodes {
 		_, err := sim.fakeClient.CoreV1().Nodes().Create(context.Background(), node, metav1.CreateOptions{})
@@ -398,6 +405,7 @@ func (sim *Simulator) AddNodes(nodes []*corev1.Node) error {
 	return nil
 }
 
+// AddFakeNode add fake nodes
 func (sim *Simulator) AddFakeNode(nodeCount int) error {
 	fmt.Printf(string(utils.ColorYellow)+"add %d node(s)\n"+string(utils.ColorReset), nodeCount)
 	if sim.simulationResources.Nodes == nil {
@@ -631,6 +639,7 @@ func (sim *Simulator) syncResourceList(resourceList simontype.ResourceTypes) err
 	return nil
 }
 
+// GenerateValidPodsFromResources generate valid pods from resources
 func (sim *Simulator) GenerateValidPodsFromResources() error {
 	utils.GetValidPodExcludeDaemonSet(&sim.simulationResources)
 
@@ -665,6 +674,7 @@ func (sim *Simulator) GenerateValidPodsFromResources() error {
 	return nil
 }
 
+// CountPodsWithoutNodeName count pods without nodename
 func (sim *Simulator) CountPodsWithoutNodeName() {
 	sim.podsWithoutNodeNameCount = 0
 	for _, item := range sim.simulationResources.Pods {
@@ -674,6 +684,7 @@ func (sim *Simulator) CountPodsWithoutNodeName() {
 	}
 }
 
+// GetPodsToBeSimulated get pods to be simulated
 func (sim *Simulator) GetPodsToBeSimulated() []*corev1.Pod {
 	return sim.simulationResources.Pods
 }
