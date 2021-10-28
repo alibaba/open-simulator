@@ -56,6 +56,7 @@ func (plugin *SimonPlugin) Score(ctx context.Context, state *framework.CycleStat
 	return int64(float64((framework.MaxNodeScore - framework.MinNodeScore)) * res), nil
 }
 
+// ScoreExtensions of the plugin
 func (plugin *SimonPlugin) ScoreExtensions() framework.ScoreExtensions {
 	return plugin
 }

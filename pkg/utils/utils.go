@@ -255,6 +255,7 @@ func MakeValidPodByPod(pod *corev1.Pod) *corev1.Pod {
 	return MakePodValid(pod)
 }
 
+// MakePodValid make pod valid, so we can handle it
 func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 	newPod := oldPod.DeepCopy()
 	if newPod.ObjectMeta.Namespace == "" {
@@ -323,6 +324,7 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 	return newPod
 }
 
+// AddWorkloadInfoToPod add simulative annotation in pod
 func AddWorkloadInfoToPod(pod *corev1.Pod, kind string, name string, namespace string) *corev1.Pod {
 	pod.ObjectMeta.Annotations[simontype.AnnoWorkloadKind] = kind
 	pod.ObjectMeta.Annotations[simontype.AnnoWorkloadName] = name
@@ -330,6 +332,7 @@ func AddWorkloadInfoToPod(pod *corev1.Pod, kind string, name string, namespace s
 	return pod
 }
 
+// MakeValidNodeByNode make a valid node from node
 func MakeValidNodeByNode(node *corev1.Node, nodename string) *corev1.Node {
 	node.ObjectMeta.Name = nodename
 	if node.ObjectMeta.Labels == nil {
@@ -347,6 +350,7 @@ func MakeValidNodeByNode(node *corev1.Node, nodename string) *corev1.Node {
 	return node
 }
 
+// ValidatePod check if pod is valid
 func ValidatePod(pod *corev1.Pod) bool {
 	internalPod := &api.Pod{}
 	if err := apiv1.Convert_v1_Pod_To_core_Pod(pod, internalPod, nil); err != nil {
@@ -364,6 +368,7 @@ func ValidatePod(pod *corev1.Pod) bool {
 	return true
 }
 
+// ValidateNode check if node is valid
 func ValidateNode(node *corev1.Node) bool {
 	internalNode := &api.Node{}
 	if err := apiv1.Convert_v1_Node_To_core_Node(node, internalNode, nil); err != nil {
@@ -381,6 +386,7 @@ func ValidateNode(node *corev1.Node) bool {
 	return true
 }
 
+// GetPodsTotalRequestsAndLimitsByNodeName get pods total resources by nodename
 func GetPodsTotalRequestsAndLimitsByNodeName(pods []corev1.Pod, nodeName string) (reqs map[corev1.ResourceName]resource.Quantity, limits map[corev1.ResourceName]resource.Quantity) {
 	reqs, limits = map[corev1.ResourceName]resource.Quantity{}, map[corev1.ResourceName]resource.Quantity{}
 	for _, pod := range pods {
@@ -408,6 +414,7 @@ func GetPodsTotalRequestsAndLimitsByNodeName(pods []corev1.Pod, nodeName string)
 	return
 }
 
+// GetNodePodsCount get pods count by node name
 func GetNodePodsCount(podList *corev1.PodList, nodeName string) (count int64) {
 	count = 0
 	for _, pod := range podList.Items {
@@ -418,6 +425,7 @@ func GetNodePodsCount(podList *corev1.PodList, nodeName string) (count int64) {
 	return
 }
 
+// IsFake check if resources is fake
 func IsFake(anno map[string]string) bool {
 	_, fake := anno[simontype.AnnoFake]
 	return fake

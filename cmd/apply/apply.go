@@ -49,7 +49,6 @@ func init() {
 
 func run(opts *Options) error {
 	// Step 0: check args
-	// TODO
 	if err := opts.checkArgs(); err != nil {
 		return fmt.Errorf("Args Error: %v ", err)
 	}
@@ -70,7 +69,6 @@ func run(opts *Options) error {
 	if len(resources.Nodes) != 1 {
 		return fmt.Errorf("The number of nodes for the application files is not only one ")
 	}
-
 
 	// Step 3: generate kube-client
 	kubeClient, err := generateKubeClient(opts.KubeConfig)
@@ -146,7 +144,7 @@ func run(opts *Options) error {
 
 // checkArgs checks whether parameters are valid
 func (opts *Options) checkArgs() error {
-	if len(opts.KubeConfig) == 0 && len(opts.ClusterConfig) == 0 || len(opts.KubeConfig) !=0 && len(opts.ClusterConfig) != 0 {
+	if len(opts.KubeConfig) == 0 && len(opts.ClusterConfig) == 0 || len(opts.KubeConfig) != 0 && len(opts.ClusterConfig) != 0 {
 		return fmt.Errorf("only one of values of both kube-config and cluster-config must exist")
 	}
 
