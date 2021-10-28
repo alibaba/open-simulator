@@ -16,6 +16,7 @@ import (
 
 var options = Options{}
 
+// DebugCmd is only for debug
 var DebugCmd = &cobra.Command{
 	Use:   "debug",
 	Short: "debug alpha feature",

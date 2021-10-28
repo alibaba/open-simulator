@@ -31,8 +31,8 @@
 Yaml文件夹可支持多级子目录，以区分资源类型，参考./example目录。目前支持以下资源类型，更多类型会在后续支持:
 
 - Pod
-- Node 
-- Deployment 
+- Node
+- Deployment
 - StatefulSet
 - DaemonSet
 
