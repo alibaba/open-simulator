@@ -324,7 +324,7 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 	return newPod
 }
 
-// AddWorkloadInfoToPod add simulative annotation in pod
+// AddWorkloadInfoToPod add annotation in pod for simulating later
 func AddWorkloadInfoToPod(pod *corev1.Pod, kind string, name string, namespace string) *corev1.Pod {
 	pod.ObjectMeta.Annotations[simontype.AnnoWorkloadKind] = kind
 	pod.ObjectMeta.Annotations[simontype.AnnoWorkloadName] = name
