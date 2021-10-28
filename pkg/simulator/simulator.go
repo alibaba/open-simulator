@@ -29,6 +29,7 @@ import (
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 )
 
+// Simulator is used to simulate a cluster and pods scheduling
 type Simulator struct {
 	// kube client
 	externalclient  externalclientset.Interface
