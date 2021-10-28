@@ -14,6 +14,7 @@ import (
 	framework "k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
+// SimonPlugin is a plugin for scheduling framework
 type SimonPlugin struct {
 	schedulerName string
 	sim           *Simulator
@@ -22,18 +23,21 @@ type SimonPlugin struct {
 var _ = framework.ScorePlugin(&SimonPlugin{})
 var _ = framework.BindPlugin(&SimonPlugin{})
 
+// Name returns name of the plugin. It is used in logs, etc.
 func (plugin *SimonPlugin) Name() string {
 	return simontype.SimonPluginName
 }
 
+// Bind invoked at the bind extension point.
 func (plugin *SimonPlugin) Bind(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) *framework.Status {
 	return plugin.sim.BindPodToNode(ctx, state, pod, nodeName, plugin.schedulerName)
 }
 
+// Score invoked at the score extension point.
 func (plugin *SimonPlugin) Score(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) (int64, *framework.Status) {
 	podReq, _ := resourcehelper.PodRequestsAndLimits(pod)
 	if len(podReq) == 0 {
-		return framework.MaxNodeScore, nil
+		return framework.MaxNodeScore, framework.NewStatus(framework.Success)
 	}
 
 	node, err := plugin.sim.fakeClient.CoreV1().Nodes().Get(plugin.sim.ctx, nodeName, metav1.GetOptions{})
@@ -53,9 +57,10 @@ func (plugin *SimonPlugin) Score(ctx context.Context, state *framework.CycleStat
 		}
 	}
 
-	return int64(float64((framework.MaxNodeScore - framework.MinNodeScore)) * res), nil
+	return int64(float64((framework.MaxNodeScore - framework.MinNodeScore)) * res), framework.NewStatus(framework.Success)
 }
 
+// // ScoreExtensions of the Score plugin.
 func (plugin *SimonPlugin) ScoreExtensions() framework.ScoreExtensions {
 	return plugin
 }
@@ -85,5 +90,5 @@ func (plugin *SimonPlugin) NormalizeScore(ctx context.Context, state *framework.
 		}
 	}
 
-	return nil
+	return framework.NewStatus(framework.Success)
 }
