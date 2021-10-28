@@ -32,8 +32,9 @@ import (
 )
 
 const (
-	DaemonSetFromCluster = "daemonset-from-cluster"
-	FakeNode             = "fake-node"
+	LabelDaemonSetFromCluster = "daemonset-from-cluster"
+	LabelNewNode              = "new-node"
+	LabelNewPod               = "new-pod"
 )
 
 // ParseFilePath converts recursively directory path to a slice of file paths
@@ -199,7 +200,7 @@ func MakeValidPodsByDeployment(deploy *apps.Deployment) []*corev1.Pod {
 	}
 	for ordinal := 0; ordinal < int(*deploy.Spec.Replicas); ordinal++ {
 		pod, _ := controller.GetPodFromTemplate(&deploy.Spec.Template, deploy, nil)
-		pod.ObjectMeta.Name = fmt.Sprintf("fake-deployment-%s-%d", deploy.Name, ordinal)
+		pod.ObjectMeta.Name = fmt.Sprintf("deployment-%s-%d", deploy.Name, ordinal)
 		pod.ObjectMeta.Namespace = deploy.Namespace
 		pod = MakePodValid(pod)
 		pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindDeployment, deploy.Name, pod.Namespace)
@@ -216,7 +217,7 @@ func MakeValidPodsByStatefulSet(set *apps.StatefulSet) []*corev1.Pod {
 	}
 	for ordinal := 0; ordinal < int(*set.Spec.Replicas); ordinal++ {
 		pod, _ := controller.GetPodFromTemplate(&set.Spec.Template, set, nil)
-		pod.ObjectMeta.Name = fmt.Sprintf("fake-statefulset-%s-%d", set.Name, ordinal)
+		pod.ObjectMeta.Name = fmt.Sprintf("statefulset-%s-%d", set.Name, ordinal)
 		pod.ObjectMeta.Namespace = set.Namespace
 		pod = MakePodValid(pod)
 		pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindStatefulSet, set.Name, pod.Namespace)
@@ -248,7 +249,7 @@ func NodeShouldRunDaemonPod(node *corev1.Node, pod *corev1.Pod) bool {
 
 func NewDaemonPod(ds *apps.DaemonSet, nodeName string) *corev1.Pod {
 	pod, _ := controller.GetPodFromTemplate(&ds.Spec.Template, ds, nil)
-	pod.ObjectMeta.Name = fmt.Sprintf("fake-daemonset-%s-%s", ds.Name, nodeName)
+	pod.ObjectMeta.Name = fmt.Sprintf("daemonset-%s-%s", ds.Name, nodeName)
 	pod.ObjectMeta.Namespace = ds.Namespace
 	pod = MakePodValid(pod)
 	pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindDaemonSet, ds.Name, pod.Namespace)
@@ -319,7 +320,6 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 		newPod.ObjectMeta.Annotations = map[string]string{}
 	}
 	newPod.ObjectMeta.Annotations[simontype.AnnoPodProvisioner] = simontype.DefaultSchedulerName
-	newPod.ObjectMeta.Annotations[simontype.AnnoFake] = ""
 	// todo: handle pvc
 	if !ValidatePod(newPod) {
 		os.Exit(1)
@@ -344,7 +344,6 @@ func MakeValidNodeByNode(node *corev1.Node, nodename string) *corev1.Node {
 	if node.ObjectMeta.Annotations == nil {
 		node.ObjectMeta.Annotations = map[string]string{}
 	}
-	node.ObjectMeta.Annotations[simontype.AnnoFake] = ""
 	node.ObjectMeta.UID = uuid.NewUUID()
 	if !ValidateNode(node) {
 		os.Exit(1)
@@ -423,11 +422,6 @@ func GetNodePodsCount(podList *corev1.PodList, nodeName string) (count int64) {
 	return
 }
 
-func IsFake(anno map[string]string) bool {
-	_, fake := anno[simontype.AnnoFake]
-	return fake
-}
-
 func AdjustWorkloads(workloads map[string][]string) {
 	if workloads == nil {
 		return
@@ -459,19 +453,19 @@ func (queue *NodeQueue) Swap(i, j int) {
 	queue.nodes[i], queue.nodes[j] = queue.nodes[j], queue.nodes[i]
 }
 func (queue *NodeQueue) Less(i, j int) bool {
-	if strings.Contains(queue.nodes[i], simontype.FakeNodeNamePrefix) && strings.Contains(queue.nodes[j], simontype.FakeNodeNamePrefix) {
+	if strings.Contains(queue.nodes[i], simontype.NewNodeNamePrefix) && strings.Contains(queue.nodes[j], simontype.NewNodeNamePrefix) {
 		return queue.nodes[i] < queue.nodes[j]
 	}
 
-	if !strings.Contains(queue.nodes[i], simontype.FakeNodeNamePrefix) && !strings.Contains(queue.nodes[j], simontype.FakeNodeNamePrefix) {
+	if !strings.Contains(queue.nodes[i], simontype.NewNodeNamePrefix) && !strings.Contains(queue.nodes[j], simontype.NewNodeNamePrefix) {
 		return queue.nodes[i] < queue.nodes[j]
 	}
 
-	if !strings.Contains(queue.nodes[i], simontype.FakeNodeNamePrefix) {
+	if !strings.Contains(queue.nodes[i], simontype.NewNodeNamePrefix) {
 		return true
 	}
 
-	if !strings.Contains(queue.nodes[j], simontype.FakeNodeNamePrefix) {
+	if !strings.Contains(queue.nodes[j], simontype.NewNodeNamePrefix) {
 		return false
 	}
 
