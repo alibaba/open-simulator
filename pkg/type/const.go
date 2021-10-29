@@ -7,19 +7,19 @@ import (
 
 const (
 	SimonPluginName      = "Simon"
-	FakeNodeNamePrefix   = "simon"
+	NewNodeNamePrefix    = "simon"
 	DefaultSchedulerName = corev1.DefaultSchedulerName
 
 	StopReasonSuccess = "everything is ok"
 
-	AnnoPodProvisioner    = "oecp.io/provisioned-by"
-	AnnoFake              = "oecp.io/fake"
-	AnnoWorkloadKind      = "oecp.io/workload-kind"
-	AnnoWorkloadName      = "oecp.io/workload-name"
-	AnnoWorkloadNamespace = "oecp.io/workload-namespace"
+	AnnoPodProvisioner    = "simon/provisioned-by"
+	AnnoWorkloadKind      = "simon/workload-kind"
+	AnnoWorkloadName      = "simon/workload-name"
+	AnnoWorkloadNamespace = "simon/workload-namespace"
 
 	LabelDaemonSetFromCluster = "daemonset-from-cluster"
-	LabelFakeNode             = "fake-node"
+	LabelNewNode              = "new-node"
+	LabelNewPod               = "new-pod"
 
 	WorkloadKindDeployment  = "Deployment"
 	WorkloadKindStatefulSet = "StatefulSet"
