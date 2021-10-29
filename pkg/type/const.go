@@ -5,8 +5,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type AliQoSClass string
-
 const (
 	SimonPluginName      = "Simon"
 	NewNodeNamePrefix    = "simon"
@@ -18,6 +16,9 @@ const (
 	AnnoWorkloadKind      = "simon/workload-kind"
 	AnnoWorkloadName      = "simon/workload-name"
 	AnnoWorkloadNamespace = "simon/workload-namespace"
+
+	LabelDaemonSetFromCluster = "daemonset-from-cluster"
+	LabelFakeNode             = "fake-node"
 
 	WorkloadKindDeployment  = "Deployment"
 	WorkloadKindStatefulSet = "StatefulSet"

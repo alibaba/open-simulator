@@ -84,6 +84,7 @@ func run(opts *Options) error {
 
 	// Step 5: get result
 	for i := 0; i < 100; i++ {
+		// 1: init simulator
 		sim, err := simulator.New(kubeClient, cc, resources)
 		if err != nil {
 			return err

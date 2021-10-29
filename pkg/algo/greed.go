@@ -6,11 +6,13 @@ import (
 	resourcehelper "k8s.io/kubectl/pkg/util/resource"
 )
 
+// GreedQueue is used to sort pods by Greed Algo
 type GreedQueue struct {
 	pods          []*corev1.Pod
 	totalResource corev1.ResourceList
 }
 
+// NewGreedQueue return a GreedQueue
 func NewGreedQueue(nodes []corev1.Node, pods []*corev1.Pod) *GreedQueue {
 	totalResource := map[corev1.ResourceName]resource.Quantity{
 		corev1.ResourceCPU:    *resource.NewQuantity(0, resource.DecimalSI),

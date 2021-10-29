@@ -29,6 +29,7 @@ import (
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 )
 
+// Simulator is used to simulate a cluster and pods scheduling
 type Simulator struct {
 	// kube client
 	externalclient  externalclientset.Interface
@@ -168,10 +169,12 @@ func (sim *Simulator) Run(pods []*corev1.Pod) error {
 	return nil
 }
 
+// GetStatus return StopReason
 func (sim *Simulator) GetStatus() string {
 	return sim.status.StopReason
 }
 
+// Report print out scheduling result of pods
 func (sim *Simulator) Report() {
 	// Step 1: report pod info
 	fmt.Println("Pod Info")
@@ -276,6 +279,7 @@ func (sim *Simulator) Report() {
 	nodeTable.Render() // Send output
 }
 
+// CreateConfigMapAndSaveItToFile will create a file to save results for later handling
 func (sim *Simulator) CreateConfigMapAndSaveItToFile(fileName string) error {
 	var resultDeployment map[string][]string = make(map[string][]string)
 	var resultStatefulment map[string][]string = make(map[string][]string)
@@ -345,6 +349,7 @@ func (sim *Simulator) CreateConfigMapAndSaveItToFile(fileName string) error {
 	return nil
 }
 
+// BindPodToNode bind pod to a node and trigger pod update event
 func (sim *Simulator) BindPodToNode(ctx context.Context, state *framework.CycleState, p *corev1.Pod, nodeName string, schedulerName string) *framework.Status {
 	// fmt.Printf("bind pod %s/%s to node %s\n", p.Namespace, p.Name, nodeName)
 	// Step 1: update pod info
@@ -369,6 +374,7 @@ func (sim *Simulator) BindPodToNode(ctx context.Context, state *framework.CycleS
 	return nil
 }
 
+// GetNodes return all nodes in cluster simulator
 func (sim *Simulator) GetNodes() []corev1.Node {
 	nodes, err := sim.fakeClient.CoreV1().Nodes().List(sim.ctx, metav1.ListOptions{})
 	if err != nil {
@@ -385,6 +391,7 @@ func (sim *Simulator) Close() {
 	}
 }
 
+// AddPods add pods
 func (sim *Simulator) AddPods(pods []*corev1.Pod) error {
 	for _, pod := range pods {
 		_, err := sim.fakeClient.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{})
@@ -395,6 +402,7 @@ func (sim *Simulator) AddPods(pods []*corev1.Pod) error {
 	return nil
 }
 
+// AddNodes add nodes
 func (sim *Simulator) AddNodes(nodes []*corev1.Node) error {
 	for _, node := range nodes {
 		_, err := sim.fakeClient.CoreV1().Nodes().Create(context.Background(), node, metav1.CreateOptions{})
@@ -405,6 +413,7 @@ func (sim *Simulator) AddNodes(nodes []*corev1.Node) error {
 	return nil
 }
 
+// AddNewNode adds nodes
 func (sim *Simulator) AddNewNode(nodeCount int) error {
 	fmt.Printf(utils.ColorYellow+"add %d node(s)\n"+utils.ColorReset, nodeCount)
 	if sim.simulationResources.Nodes == nil {
@@ -525,7 +534,7 @@ func (sim *Simulator) SyncFakeCluster(clusterConfigPath string) error {
 		}
 		for _, item := range daemonSetItems.Items {
 			newItem := item
-			metav1.SetMetaDataLabel(&newItem.ObjectMeta, utils.LabelDaemonSetFromCluster, "")
+			metav1.SetMetaDataLabel(&newItem.ObjectMeta, simontype.LabelDaemonSetFromCluster, "")
 			resourceList.DaemonSets = append(resourceList.DaemonSets, &newItem)
 		}
 	} else {
@@ -549,7 +558,7 @@ func (sim *Simulator) genResourceListFromClusterConfig(path string) (simontype.R
 
 	utils.GetValidPodExcludeDaemonSet(&resourceList)
 	for _, item := range resourceList.DaemonSets {
-		metav1.SetMetaDataLabel(&item.ObjectMeta, utils.LabelDaemonSetFromCluster, "")
+		metav1.SetMetaDataLabel(&item.ObjectMeta, simontype.LabelDaemonSetFromCluster, "")
 		resourceList.Pods = append(resourceList.Pods, utils.MakeValidPodsByDaemonset(item, resourceList.Nodes)...)
 	}
 
@@ -637,11 +646,12 @@ func (sim *Simulator) syncResourceList(resourceList simontype.ResourceTypes) err
 	return nil
 }
 
+// GenerateValidPodsFromResources generate valid pods from resources
 func (sim *Simulator) GenerateValidPodsFromResources() error {
 	utils.GetValidPodExcludeDaemonSet(&sim.simulationResources)
 
 	// DaemonSet will match with specific nodes so it needs to be handled separately
-	var nodes []*corev1.Node
+	var nodes     []*corev1.Node
 	var fakeNodes []*corev1.Node
 
 	// get all nodes
@@ -651,14 +661,14 @@ func (sim *Simulator) GenerateValidPodsFromResources() error {
 		nodes = append(nodes, &newItem)
 	}
 	// get all fake nodes
-	nodeItems, _ = sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: utils.LabelNewNode})
+	nodeItems, _ = sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: simontype.LabelFakeNode})
 	for _, item := range nodeItems.Items {
 		newItem := item
 		fakeNodes = append(fakeNodes, &newItem)
 	}
 
 	// get all pods from daemonset
-	daemonsets, _ := sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{LabelSelector: utils.LabelDaemonSetFromCluster})
+	daemonsets, _ := sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{LabelSelector: simontype.LabelDaemonSetFromCluster})
 	for _, item := range daemonsets.Items {
 		newItem := item
 		sim.simulationResources.Pods = append(sim.simulationResources.Pods, utils.MakeValidPodsByDaemonset(&newItem, fakeNodes)...)
@@ -673,10 +683,11 @@ func (sim *Simulator) GenerateValidPodsFromResources() error {
 
 func (sim *Simulator) SetLabel() {
 	for _, pod := range sim.simulationResources.Pods {
-		metav1.SetMetaDataLabel(&pod.ObjectMeta, utils.LabelNewPod, "")
+		metav1.SetMetaDataLabel(&pod.ObjectMeta, simontype.LabelNewPod, "")
 	}
 }
 
+// CountPodsWithoutNodeName
 func (sim *Simulator) CountPodsWithoutNodeName() {
 	sim.podsWithoutNodeNameCount = 0
 	for _, item := range sim.simulationResources.Pods {
@@ -686,6 +697,7 @@ func (sim *Simulator) CountPodsWithoutNodeName() {
 	}
 }
 
+// GetPodsToBeSimulated get pods to be simulated
 func (sim *Simulator) GetPodsToBeSimulated() []*corev1.Pod {
 	return sim.simulationResources.Pods
 }

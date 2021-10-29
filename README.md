@@ -24,13 +24,17 @@
 
 执行命令
 
-./simon apply --kubeconfig=[kubeconfig文件目录] -f [Yaml文件夹目录]
+真实集群: ./simon apply --kube-config=[kubeconfig文件目录] -f [待调度的yaml资源文件夹]
 
-Yaml文件夹参考./example目录，包含如下文件:
+模拟集群: ./simon apply --cluster-config=[clusterconfig文件目录] -f [待调度的yaml资源文件夹]
 
-- Deployment yamls
-- Statefulset yamls
-- Node yaml
+Yaml文件夹可支持多级子目录，以区分资源类型，参考./example目录。目前支持以下资源类型，更多类型会在后续支持:
+
+- Pod
+- Node
+- Deployment
+- StatefulSet
+- DaemonSet
 
 执行后输出一个名为configmap-simon.yaml的文件，用以保存结果。
 
@@ -69,5 +73,5 @@ cp ~/.kube/config  ./kubeconfig
 
 # 项目编译及运行
 make
-bin/simon apply --kubeconfig=./kubeconfig -f ./example/simple_example_by_huizhi
+bin/simon apply --kubeconfig=./kubeconfig -f ./example/application_example/simple_example_by_huizhi
 ```
