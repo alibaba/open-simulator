@@ -24,9 +24,9 @@
 
 执行命令
 
-真实集群: ./simon apply --kube-config=[kubeconfig文件目录] -f [待调度的yaml资源文件夹]
+真实集群: /bin/simon apply --kube-config=[kubeconfig文件目录] -f [待调度的yaml资源文件夹]
 
-模拟集群: ./simon apply --cluster-config=[clusterconfig文件目录] -f [待调度的yaml资源文件夹]
+模拟集群: /bin/simon apply --cluster-config=[clusterconfig文件目录] -f [待调度的yaml资源文件夹]
 
 Yaml文件夹可支持多级子目录，以区分资源类型，参考./example目录。目前支持以下资源类型，更多类型会在后续支持:
 
@@ -54,7 +54,7 @@ data:
 ![](doc/images/simon.png)
 ## Deployment
 
-> 以 MacBook 为例
+> 以在 MacBook 上通过 Minikube 来模拟调度为例
 
 ### 步骤
 
@@ -62,7 +62,7 @@ data:
 # 克隆项目
 mkdir $(GOPATH)/github.com/alibaba
 cd $(GOPATH)/github.com/alibaba
-git clone https://github.com/alibaba/open-simulator.git
+git clone git@github.com:alibaba/open-simulator.git
 cd open-simulator
 
 # 安装minikube并运行
@@ -73,5 +73,5 @@ cp ~/.kube/config  ./kubeconfig
 
 # 项目编译及运行
 make
-bin/simon apply --kubeconfig=./kubeconfig -f ./example/application_example/simple_example_by_huizhi
+bin/simon apply --kube-config=./kubeconfig -f ./example/application_example/simple_example_by_huizhi
 ```
