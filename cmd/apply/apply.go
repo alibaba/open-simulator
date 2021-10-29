@@ -105,9 +105,6 @@ func run(opts *Options) error {
 			return err
 		}
 
-		// count pod without nodeName
-		sim.CountPodsWithoutNodeName()
-
 		// sort pods
 		// TODO: These pods with nodeName have priority
 		if opts.UseGreed {
@@ -119,7 +116,7 @@ func run(opts *Options) error {
 			// sort.Sort(aff)
 		}
 
-		fmt.Printf(utils.ColorCyan+"There are %d pods to be scheduled\n"+utils.ColorReset, len(sim.GetPodsToBeSimulated()))
+		fmt.Printf(utils.ColorCyan+"There are %d pods to be simulated, and %d of them will be scheduled\n"+utils.ColorReset, sim.GetPodsCount(), sim.GetPodsWithoutNodeNameCount())
 		err = sim.Run(sim.GetPodsToBeSimulated())
 		if err != nil {
 			return err

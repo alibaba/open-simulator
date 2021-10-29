@@ -17,7 +17,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	externalclientset "k8s.io/client-go/kubernetes"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
@@ -43,7 +42,8 @@ type Simulator struct {
 	// stopCh
 	simulatorStop chan struct{}
 
-	podsWithoutNodeNameCount int64
+	// the value of the podsToBeScheduled is reduced by one After one pod is scheduled
+	podsToBeScheduled int64
 
 	ctx        context.Context
 	cancelFunc context.CancelFunc
@@ -55,6 +55,9 @@ type Simulator struct {
 
 	// resource from files
 	simulationResources simontype.ResourceTypes
+
+	// pods generated from resource
+	pods []*corev1.Pod
 }
 
 // Status captures reason why one pod fails to be scheduled
@@ -81,6 +84,7 @@ func New(externalClient externalclientset.Interface, kubeSchedulerConfig *schedc
 		cancelFunc:          cancel,
 		schedulerName:       simontype.DefaultSchedulerName,
 		simulationResources: resourcesFromFiles,
+		pods:                make([]*corev1.Pod, 0),
 	}
 
 	// Step 3: add event handler for pods
@@ -150,20 +154,25 @@ func (sim *Simulator) Run(pods []*corev1.Pod) error {
 	}()
 	// Step 3: wait some time before at least nodes are populated
 	time.Sleep(100 * time.Millisecond)
-
 	// Step 4: create the simulated pods
+	sim.podsToBeScheduled = sim.GetPodsWithoutNodeNameCount()
 	for _, pod := range pods {
 		// log.Infof("sim pod %v on node %v", pod.Namespace+"/"+pod.Name, pod.Spec.NodeName)
+		isPodToBeScheduled := false
+		if pod.Spec.NodeName == "" {
+			isPodToBeScheduled = true
+		}
 		_, err := sim.fakeClient.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{})
 		if err != nil {
 			log.Errorf("create pod error: %s", err.Error())
 		}
-	}
-
-	if len(pods) != 0 {
-		wait.Until(func() {
-			time.Sleep(50 * time.Millisecond)
-		}, time.Millisecond, sim.simulatorStop)
+		if isPodToBeScheduled {
+			<-sim.simulatorStop
+		}
+		if sim.status.StopReason != simontype.StopReasonDoNotStop && sim.status.StopReason != simontype.StopReasonSuccess {
+			break
+		}
+		// fmt.Printf("test pod %s: %s\n", pod.Name, sim.status.StopReason)
 	}
 
 	return nil
@@ -377,10 +386,8 @@ func (sim *Simulator) GetNodes() []corev1.Node {
 }
 
 func (sim *Simulator) Close() {
-	if sim.podsWithoutNodeNameCount == 0 {
-		sim.cancelFunc()
-		close(sim.simulatorStop)
-	}
+	sim.cancelFunc()
+	close(sim.simulatorStop)
 }
 
 // AddPods add pods
@@ -535,6 +542,12 @@ func (sim *Simulator) SyncFakeCluster(clusterConfigPath string) error {
 		if err != nil {
 			return fmt.Errorf("Failed to generate resource list from cluster config: %v ", err)
 		}
+		// todo: 这部分集群资源也需要生成 Pod 并参与调度。看如何优雅处理
+		sim.simulationResources.DaemonSets = append(sim.simulationResources.DaemonSets, resourceList.DaemonSets...)
+		sim.simulationResources.Deployments = append(sim.simulationResources.Deployments, resourceList.Deployments...)
+		sim.simulationResources.StatefulSets = append(sim.simulationResources.StatefulSets, resourceList.StatefulSets...)
+		sim.simulationResources.Pods = append(sim.simulationResources.Pods, resourceList.Pods...)
+		resourceList.Pods = nil
 	}
 	return sim.syncResourceList(resourceList)
 }
@@ -547,12 +560,6 @@ func (sim *Simulator) genResourceListFromClusterConfig(path string) (simontype.R
 	resourceList, err := utils.GetObjectsFromFiles(clusterFilePaths)
 	if err != nil {
 		return simontype.ResourceTypes{}, err
-	}
-
-	utils.GetValidPodExcludeDaemonSet(&resourceList)
-	for _, item := range resourceList.DaemonSets {
-		metav1.SetMetaDataLabel(&item.ObjectMeta, simontype.LabelDaemonSetFromCluster, "")
-		resourceList.Pods = append(resourceList.Pods, utils.MakeValidPodsByDaemonset(item, resourceList.Nodes)...)
 	}
 
 	return resourceList, nil
@@ -641,7 +648,7 @@ func (sim *Simulator) syncResourceList(resourceList simontype.ResourceTypes) err
 
 // GenerateValidPodsFromResources generate valid pods from resources
 func (sim *Simulator) GenerateValidPodsFromResources() error {
-	utils.GetValidPodExcludeDaemonSet(&sim.simulationResources)
+	sim.pods = append(sim.pods, utils.GetValidPodExcludeDaemonSet(&sim.simulationResources)...)
 
 	// DaemonSet will match with specific nodes so it needs to be handled separately
 	var nodes []*corev1.Node
@@ -664,29 +671,33 @@ func (sim *Simulator) GenerateValidPodsFromResources() error {
 	daemonsets, _ := sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{LabelSelector: simontype.LabelDaemonSetFromCluster})
 	for _, item := range daemonsets.Items {
 		newItem := item
-		sim.simulationResources.Pods = append(sim.simulationResources.Pods, utils.MakeValidPodsByDaemonset(&newItem, fakeNodes)...)
+		sim.pods = append(sim.pods, utils.MakeValidPodsByDaemonset(&newItem, fakeNodes)...)
 	}
 	for _, item := range sim.simulationResources.DaemonSets {
 		newItem := item
-		sim.simulationResources.Pods = append(sim.simulationResources.Pods, utils.MakeValidPodsByDaemonset(newItem, nodes)...)
+		sim.pods = append(sim.pods, utils.MakeValidPodsByDaemonset(newItem, nodes)...)
 	}
 
 	return nil
 }
 
-// CountPodsWithoutNodeName count pods without nodename
-func (sim *Simulator) CountPodsWithoutNodeName() {
-	sim.podsWithoutNodeNameCount = 0
-	for _, item := range sim.simulationResources.Pods {
+func (sim *Simulator) GetPodsCount() int64 {
+	return int64(len(sim.pods))
+}
+
+func (sim *Simulator) GetPodsWithoutNodeNameCount() int64 {
+	var podsWithoutNodeNameCount int64 = 0
+	for _, item := range sim.pods {
 		if item.Spec.NodeName == "" {
-			sim.podsWithoutNodeNameCount++
+			podsWithoutNodeNameCount++
 		}
 	}
+	return podsWithoutNodeNameCount
 }
 
 // GetPodsToBeSimulated get pods to be simulated
 func (sim *Simulator) GetPodsToBeSimulated() []*corev1.Pod {
-	return sim.simulationResources.Pods
+	return sim.pods
 }
 
 func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) error {
@@ -706,21 +717,17 @@ func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) error {
 	// Only for pending pods provisioned by simon
 	if stop {
 		if metav1.HasAnnotation(pod.ObjectMeta, simontype.AnnoPodProvisioner) {
-			sim.status.StopReason = fmt.Sprintf("pod %s/%s is failed, %d pod(s) are waited to be scheduled: %s: %s", pod.Namespace, pod.Name, sim.podsWithoutNodeNameCount, stopReason, stopMessage)
-			// The Update function can be run more than once before any corresponding
-			// scheduler is closed. The behaviour is implementation specific
-			// fmt.Printf("send stop message %s/%s\n", pod.Namespace, pod.Name)
-			sim.simulatorStop <- struct{}{}
-			sim.Close()
+			sim.status.StopReason = fmt.Sprintf("pod %s/%s is failed, %d pod(s) are waited to be scheduled: %s: %s", pod.Namespace, pod.Name, sim.podsToBeScheduled, stopReason, stopMessage)
 		}
 	} else {
-		sim.podsWithoutNodeNameCount--
-		if sim.podsWithoutNodeNameCount == 0 {
+		sim.podsToBeScheduled--
+		if sim.podsToBeScheduled == 0 {
 			sim.status.StopReason = simontype.StopReasonSuccess
-			// fmt.Printf("send success message %s/%s\n", pod.Namespace, pod.Name)
-			sim.simulatorStop <- struct{}{}
+		} else {
+			sim.status.StopReason = simontype.StopReasonDoNotStop
 		}
 	}
+	sim.simulatorStop <- struct{}{}
 
 	return nil
 }

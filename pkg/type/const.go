@@ -10,7 +10,8 @@ const (
 	FakeNodeNamePrefix   = "simon"
 	DefaultSchedulerName = corev1.DefaultSchedulerName
 
-	StopReasonSuccess = "everything is ok"
+	StopReasonSuccess   = "everything is ok"
+	StopReasonDoNotStop = "do not stop"
 
 	AnnoPodProvisioner    = "oecp.io/provisioned-by"
 	AnnoFake              = "oecp.io/fake"

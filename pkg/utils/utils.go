@@ -74,7 +74,7 @@ func GetObjectsFromFiles(filePaths []string) (simontype.ResourceTypes, error) {
 		case *corev1.Node:
 			resources.Nodes = append(resources.Nodes, o)
 		case *corev1.Pod:
-			resources.Pods = append(resources.Pods, o)
+			resources.Pods = append(resources.Pods, MakePodValid(o))
 		case *apps.DaemonSet:
 			resources.DaemonSets = append(resources.DaemonSets, o)
 		case *apps.StatefulSet:
@@ -168,22 +168,24 @@ func GetRecorderFactory(cc *schedconfig.CompletedConfig) profile.RecorderFactory
 }
 
 // GetValidPodExcludeDaemonSet gets valid pod by resources exclude DaemonSet that needs to be handled specially
-func GetValidPodExcludeDaemonSet(resources *simontype.ResourceTypes) {
-
+func GetValidPodExcludeDaemonSet(resources *simontype.ResourceTypes) []*corev1.Pod {
+	var pods []*corev1.Pod = make([]*corev1.Pod, 0)
 	//get valid pods by pods
-	for i, item := range resources.Pods {
-		resources.Pods[i] = MakeValidPodByPod(item)
+	for _, item := range resources.Pods {
+		pods = append(pods, MakeValidPodByPod(item))
 	}
 
 	// get all pods from deployment
 	for _, deploy := range resources.Deployments {
-		resources.Pods = append(resources.Pods, MakeValidPodsByDeployment(deploy)...)
+		pods = append(pods, MakeValidPodsByDeployment(deploy)...)
 	}
 
 	// get all pods from statefulset
 	for _, sts := range resources.StatefulSets {
-		resources.Pods = append(resources.Pods, MakeValidPodsByStatefulSet(sts)...)
+		pods = append(pods, MakeValidPodsByStatefulSet(sts)...)
 	}
+
+	return pods
 }
 
 func MakeValidPodsByDeployment(deploy *apps.Deployment) []*corev1.Pod {
