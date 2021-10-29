@@ -18,7 +18,8 @@ const (
 	AnnoWorkloadNamespace = "simon/workload-namespace"
 
 	LabelDaemonSetFromCluster = "daemonset-from-cluster"
-	LabelFakeNode             = "fake-node"
+	LabelNewNode              = "new-node"
+	LabelNewPod               = "new-pod"
 
 	WorkloadKindDeployment  = "Deployment"
 	WorkloadKindStatefulSet = "StatefulSet"

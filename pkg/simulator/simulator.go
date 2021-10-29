@@ -208,7 +208,7 @@ func (sim *Simulator) Report() {
 			fractionMemoryReq := float64(memoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
 			fractionMemoryLimit := float64(memoryLimit.Value()) / float64(allocatable.Memory().Value()) * 100
 			newPod := ""
-			if _, exist := pod.Labels[utils.LabelNewPod]; exist {
+			if _, exist := pod.Labels[simontype.LabelNewPod]; exist {
 				newPod = "√"
 			}
 			//if !utils.IsNew(pod.Annotations) {
@@ -258,7 +258,7 @@ func (sim *Simulator) Report() {
 		nodeFractionMemoryReq := float64(nodeMemoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
 		nodeFractionMemoryLimit := float64(nodeMemoryLimit.Value()) / float64(allocatable.Memory().Value()) * 100
 		newNode := ""
-		if _, exist := node.Labels[utils.LabelNewNode]; exist {
+		if _, exist := node.Labels[simontype.LabelNewNode]; exist {
 			newNode = "√"
 		}
 		data := []string{
@@ -269,7 +269,7 @@ func (sim *Simulator) Report() {
 			allocatable.Memory().String(),
 			fmt.Sprintf("%s(%d%%)", nodeMemoryReq.String(), int64(nodeFractionMemoryReq)),
 			fmt.Sprintf("%s(%d%%)", nodeMemoryLimit.String(), int64(nodeFractionMemoryLimit)),
-			fmt.Sprintf("%d", utils.GetNodePodsCount(allPods, node.Name)),
+			fmt.Sprintf("%d", utils.CountPodOnTheNode(allPods, node.Name)),
 			newNode,
 		}
 		nodeTable.Append(data)
@@ -374,7 +374,7 @@ func (sim *Simulator) BindPodToNode(ctx context.Context, state *framework.CycleS
 	return nil
 }
 
-// GetNodes return all nodes in cluster simulator
+// GetNodes
 func (sim *Simulator) GetNodes() []corev1.Node {
 	nodes, err := sim.fakeClient.CoreV1().Nodes().List(sim.ctx, metav1.ListOptions{})
 	if err != nil {
@@ -391,7 +391,6 @@ func (sim *Simulator) Close() {
 	}
 }
 
-// AddPods add pods
 func (sim *Simulator) AddPods(pods []*corev1.Pod) error {
 	for _, pod := range pods {
 		_, err := sim.fakeClient.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{})
@@ -402,7 +401,6 @@ func (sim *Simulator) AddPods(pods []*corev1.Pod) error {
 	return nil
 }
 
-// AddNodes add nodes
 func (sim *Simulator) AddNodes(nodes []*corev1.Node) error {
 	for _, node := range nodes {
 		_, err := sim.fakeClient.CoreV1().Nodes().Create(context.Background(), node, metav1.CreateOptions{})
@@ -413,7 +411,6 @@ func (sim *Simulator) AddNodes(nodes []*corev1.Node) error {
 	return nil
 }
 
-// AddNewNode adds nodes
 func (sim *Simulator) AddNewNode(nodeCount int) error {
 	fmt.Printf(utils.ColorYellow+"add %d node(s)\n"+utils.ColorReset, nodeCount)
 	if sim.simulationResources.Nodes == nil {
@@ -546,6 +543,7 @@ func (sim *Simulator) SyncFakeCluster(clusterConfigPath string) error {
 	return sim.syncResourceList(resourceList)
 }
 
+// genResourceListFromClusterConfig
 func (sim *Simulator) genResourceListFromClusterConfig(path string) (simontype.ResourceTypes, error) {
 	clusterFilePaths, err := utils.ParseFilePath(path)
 	if err != nil {
@@ -661,7 +659,7 @@ func (sim *Simulator) GenerateValidPodsFromResources() error {
 		nodes = append(nodes, &newItem)
 	}
 	// get all fake nodes
-	nodeItems, _ = sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: simontype.LabelFakeNode})
+	nodeItems, _ = sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: simontype.LabelNewNode})
 	for _, item := range nodeItems.Items {
 		newItem := item
 		fakeNodes = append(fakeNodes, &newItem)
@@ -687,7 +685,6 @@ func (sim *Simulator) SetLabel() {
 	}
 }
 
-// CountPodsWithoutNodeName
 func (sim *Simulator) CountPodsWithoutNodeName() {
 	sim.podsWithoutNodeNameCount = 0
 	for _, item := range sim.simulationResources.Pods {
