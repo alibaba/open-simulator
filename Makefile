@@ -20,6 +20,8 @@ build:
 	# chmod +x $(OUTPUT_DIR)/$(BINARY_NAME)
 	# bin/simon debug -f ./example/
 	# bin/simon apply --cluster-config=./example/cluster_example/cluster_demo_1 -f ./example/application_example/simple_example_by_huizhi
+	# bin/simon apply --cluster-config=./example/cluster_example/cluster_demo_1 -f ./example/application_example/complicated_example_by_huizhi
+	# bin/simon apply --kube-config=./kubeconfig -f ./example/application_example/simple_example_by_huizhi
 	# bin/simon apply --kube-config=./kubeconfig -f ./example/application_example/complicated_example_by_huizhi
 
 .PHONY: test 

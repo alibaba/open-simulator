@@ -7,7 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
-	"time"
+	"strings"
 
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/alibaba/open-simulator/pkg/utils"
@@ -42,31 +42,22 @@ type Simulator struct {
 	// stopCh
 	simulatorStop chan struct{}
 
-	// the value of the podsToBeScheduled is reduced by one After one pod is scheduled
-	podsToBeScheduled int64
-
+	// context
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 
-	// mutex
-	// closedMux sync.RWMutex
-
 	status Status
-
-	// resource from files
-	simulationResources simontype.ResourceTypes
-
-	// pods generated from resource
-	pods []*corev1.Pod
 }
 
 // Status captures reason why one pod fails to be scheduled
 type Status struct {
-	StopReason string
+	stopReason string
+	// the value of the numOfRemainingPods is reduced by one After one pod is scheduled
+	numOfRemainingPods int64
 }
 
 // New generates all components that will be needed to simulate scheduling and returns a complete simulator
-func New(externalClient externalclientset.Interface, kubeSchedulerConfig *schedconfig.CompletedConfig, resourcesFromFiles simontype.ResourceTypes) (*Simulator, error) {
+func New(externalClient externalclientset.Interface, kubeSchedulerConfig *schedconfig.CompletedConfig) (*Simulator, error) {
 	var err error
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -76,15 +67,13 @@ func New(externalClient externalclientset.Interface, kubeSchedulerConfig *schedc
 
 	// Step 2: Create the simulator
 	sim := &Simulator{
-		externalclient:      externalClient,
-		fakeClient:          fakeClient,
-		simulatorStop:       make(chan struct{}),
-		informerFactory:     sharedInformerFactory,
-		ctx:                 ctx,
-		cancelFunc:          cancel,
-		schedulerName:       simontype.DefaultSchedulerName,
-		simulationResources: resourcesFromFiles,
-		pods:                make([]*corev1.Pod, 0),
+		externalclient:  externalClient,
+		fakeClient:      fakeClient,
+		simulatorStop:   make(chan struct{}),
+		informerFactory: sharedInformerFactory,
+		ctx:             ctx,
+		cancelFunc:      cancel,
+		schedulerName:   simontype.DefaultSchedulerName,
 	}
 
 	// Step 3: add event handler for pods
@@ -142,8 +131,8 @@ func New(externalClient externalclientset.Interface, kubeSchedulerConfig *schedc
 	return sim, nil
 }
 
-// Run starts to schedule pods
-func (sim *Simulator) Run(pods []*corev1.Pod) error {
+// RunScheduler
+func (sim *Simulator) RunScheduler() {
 	// Step 1: start all informers.
 	sim.informerFactory.Start(sim.ctx.Done())
 	sim.informerFactory.WaitForCacheSync(sim.ctx.Done())
@@ -153,25 +142,27 @@ func (sim *Simulator) Run(pods []*corev1.Pod) error {
 		sim.scheduler.Run(sim.ctx)
 	}()
 	// Step 3: wait some time before at least nodes are populated
-	time.Sleep(100 * time.Millisecond)
-	// Step 4: create the simulated pods
-	sim.podsToBeScheduled = sim.GetPodsWithoutNodeNameCount()
+	// time.Sleep(100 * time.Millisecond)
+}
+
+// Run starts to schedule pods
+func (sim *Simulator) SchedulePods(pods []*corev1.Pod) error {
+	// create the simulated pods
+	sim.status.numOfRemainingPods = utils.GetTotalNumberOfPodsWithoutNodeName(pods)
 	for _, pod := range pods {
-		// log.Infof("sim pod %v on node %v", pod.Namespace+"/"+pod.Name, pod.Spec.NodeName)
-		isPodToBeScheduled := false
-		if pod.Spec.NodeName == "" {
-			isPodToBeScheduled = true
-		}
 		_, err := sim.fakeClient.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("create pod error: %s", err.Error())
+			return fmt.Errorf("create pod %s/%s error: %s", pod.Namespace, pod.Name, err.Error())
 		}
-		if isPodToBeScheduled {
+
+		// we send value into sim.simulatorStop channel in update() function only,
+		// update() is triggered when pod without nodename is handled.
+		if pod.Spec.NodeName == "" {
 			<-sim.simulatorStop
 		}
-		// fmt.Printf("test pod %s: %s\n", pod.Name, sim.status.StopReason)
-		if sim.status.StopReason != simontype.StopReasonDoNotStop && sim.status.StopReason != simontype.StopReasonSuccess && sim.status.StopReason != "" {
-			break
+
+		if strings.Contains(sim.status.stopReason, "failed") {
+			return fmt.Errorf("schedule pod failed: %s\n", sim.GetStatus())
 		}
 	}
 
@@ -180,7 +171,7 @@ func (sim *Simulator) Run(pods []*corev1.Pod) error {
 
 // GetStatus return StopReason
 func (sim *Simulator) GetStatus() string {
-	return sim.status.StopReason
+	return sim.status.stopReason
 }
 
 // Report print out scheduling result of pods
@@ -286,6 +277,10 @@ func (sim *Simulator) Report() {
 	nodeTable.SetRowLine(true)
 	nodeTable.SetAlignment(tablewriter.ALIGN_LEFT)
 	nodeTable.Render() // Send output
+}
+
+func (sim *Simulator) GetFakeClient() externalclientset.Interface {
+	return sim.fakeClient
 }
 
 // CreateConfigMapAndSaveItToFile will create a file to save results for later handling
@@ -418,17 +413,18 @@ func (sim *Simulator) AddNodes(nodes []*corev1.Node) error {
 	return nil
 }
 
-func (sim *Simulator) AddNewNode(nodeCount int) error {
-	fmt.Printf(utils.ColorYellow+"add %d node(s)\n"+utils.ColorReset, nodeCount)
-	if sim.simulationResources.Nodes == nil {
+func (sim *Simulator) AddNewNode(node *corev1.Node, nodeCount int) error {
+	if node == nil {
 		return fmt.Errorf("node is nil")
 	}
+
+	fmt.Printf(utils.ColorYellow+"add %d node(s)\n"+utils.ColorReset, nodeCount)
 
 	// make fake nodes
 	for i := 0; i < nodeCount; i++ {
 		hostname := fmt.Sprintf("%s-%02d", simontype.NewNodeNamePrefix, i)
-		node := utils.MakeValidNodeByNode(sim.simulationResources.Nodes[0], hostname)
-		metav1.SetMetaDataLabel(&node.ObjectMeta, "new-node", "")
+		node := utils.MakeValidNodeByNode(node, hostname)
+		metav1.SetMetaDataLabel(&node.ObjectMeta, simontype.LabelNewNode, "")
 		_, err := sim.fakeClient.CoreV1().Nodes().Create(context.Background(), node, metav1.CreateOptions{})
 		if err != nil {
 			return err
@@ -437,8 +433,8 @@ func (sim *Simulator) AddNewNode(nodeCount int) error {
 	return nil
 }
 
-// SyncFakeCluster synchronize cluster information to fake(simulated) cluster by kube-client or cluster configuration files
-func (sim *Simulator) SyncFakeCluster(clusterConfigPath string) error {
+// CreateFakeCluster synchronize cluster information to fake(simulated) cluster by kube-client or cluster configuration files
+func (sim *Simulator) CreateFakeCluster(clusterConfigPath string) error {
 	var resourceList simontype.ResourceTypes
 	var err error
 	if !reflect.ValueOf(sim.externalclient).IsZero() {
@@ -546,12 +542,6 @@ func (sim *Simulator) SyncFakeCluster(clusterConfigPath string) error {
 		if err != nil {
 			return fmt.Errorf("Failed to generate resource list from cluster config: %v ", err)
 		}
-		// todo: 这部分集群资源也需要生成 Pod 并参与调度。看如何优雅处理
-		sim.simulationResources.DaemonSets = append(sim.simulationResources.DaemonSets, resourceList.DaemonSets...)
-		sim.simulationResources.Deployments = append(sim.simulationResources.Deployments, resourceList.Deployments...)
-		sim.simulationResources.StatefulSets = append(sim.simulationResources.StatefulSets, resourceList.StatefulSets...)
-		sim.simulationResources.Pods = append(sim.simulationResources.Pods, resourceList.Pods...)
-		resourceList.Pods = nil
 	}
 	return sim.syncResourceList(resourceList)
 }
@@ -567,6 +557,12 @@ func (sim *Simulator) genResourceListFromClusterConfig(path string) (simontype.R
 		return simontype.ResourceTypes{}, err
 	}
 
+	resourceList.Pods = utils.GetValidPodExcludeDaemonSet(&resourceList)
+	for _, item := range resourceList.DaemonSets {
+		metav1.SetMetaDataLabel(&item.ObjectMeta, simontype.LabelDaemonSetFromCluster, "")
+		resourceList.Pods = append(resourceList.Pods, utils.MakeValidPodsByDaemonset(item, resourceList.Nodes)...)
+	}
+
 	return resourceList, nil
 }
 
@@ -575,13 +571,6 @@ func (sim *Simulator) syncResourceList(resourceList simontype.ResourceTypes) err
 	for _, item := range resourceList.Nodes {
 		if _, err := sim.fakeClient.CoreV1().Nodes().Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy node: %v", err)
-		}
-	}
-
-	//sync pod
-	for _, item := range resourceList.Pods {
-		if _, err := sim.fakeClient.CoreV1().Pods(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("unable to copy pod: %v", err)
 		}
 	}
 
@@ -648,67 +637,12 @@ func (sim *Simulator) syncResourceList(resourceList simontype.ResourceTypes) err
 		}
 	}
 
-	return nil
-}
-
-// GenerateValidPodsFromResources generate valid pods from resources
-func (sim *Simulator) GenerateValidPodsFromResources() error {
-	sim.pods = append(sim.pods, utils.GetValidPodExcludeDaemonSet(&sim.simulationResources)...)
-
-	// DaemonSet will match with specific nodes so it needs to be handled separately
-	var nodes []*corev1.Node
-	var fakeNodes []*corev1.Node
-
-	// get all nodes
-	nodeItems, _ := sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
-	for _, item := range nodeItems.Items {
-		newItem := item
-		nodes = append(nodes, &newItem)
-	}
-	// get all fake nodes
-	nodeItems, _ = sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: simontype.LabelNewNode})
-	for _, item := range nodeItems.Items {
-		newItem := item
-		fakeNodes = append(fakeNodes, &newItem)
-	}
-
-	// get all pods from daemonset
-	daemonsets, _ := sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{LabelSelector: simontype.LabelDaemonSetFromCluster})
-	for _, item := range daemonsets.Items {
-		newItem := item
-		sim.pods = append(sim.pods, utils.MakeValidPodsByDaemonset(&newItem, fakeNodes)...)
-	}
-	for _, item := range sim.simulationResources.DaemonSets {
-		newItem := item
-		sim.pods = append(sim.pods, utils.MakeValidPodsByDaemonset(newItem, nodes)...)
+	// sync pods
+	if err := sim.SchedulePods(resourceList.Pods); err != nil {
+		return err
 	}
 
 	return nil
-}
-
-func (sim *Simulator) SetLabel() {
-	for _, pod := range sim.pods {
-		metav1.SetMetaDataLabel(&pod.ObjectMeta, simontype.LabelNewPod, "")
-	}
-}
-
-func (sim *Simulator) GetPodsCount() int64 {
-	return int64(len(sim.pods))
-}
-
-func (sim *Simulator) GetPodsWithoutNodeNameCount() int64 {
-	var podsWithoutNodeNameCount int64 = 0
-	for _, item := range sim.pods {
-		if item.Spec.NodeName == "" {
-			podsWithoutNodeNameCount++
-		}
-	}
-	return podsWithoutNodeNameCount
-}
-
-// GetPodsToBeSimulated get pods to be simulated
-func (sim *Simulator) GetPodsToBeSimulated() []*corev1.Pod {
-	return sim.pods
 }
 
 func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) error {
@@ -727,15 +661,14 @@ func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) error {
 	}
 	// Only for pending pods provisioned by simon
 	if stop {
-		if metav1.HasAnnotation(pod.ObjectMeta, simontype.AnnoPodProvisioner) {
-			sim.status.StopReason = fmt.Sprintf("pod %s/%s is failed, %d pod(s) are waited to be scheduled: %s: %s", pod.Namespace, pod.Name, sim.podsToBeScheduled, stopReason, stopMessage)
-		}
+		sim.status.stopReason = fmt.Sprintf("pod %s/%s is failed, %d pod(s) are waited to be scheduled: %s: %s", pod.Namespace, pod.Name, sim.status.numOfRemainingPods, stopReason, stopMessage)
+		// }
 	} else {
-		sim.podsToBeScheduled--
-		if sim.podsToBeScheduled == 0 {
-			sim.status.StopReason = simontype.StopReasonSuccess
+		sim.status.numOfRemainingPods--
+		if sim.status.numOfRemainingPods == 0 {
+			sim.status.stopReason = simontype.StopReasonSuccess
 		} else {
-			sim.status.StopReason = simontype.StopReasonDoNotStop
+			sim.status.stopReason = simontype.StopReasonDoNotStop
 		}
 	}
 	sim.simulatorStop <- struct{}{}
