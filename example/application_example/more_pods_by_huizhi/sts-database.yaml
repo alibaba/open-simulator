@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: database-sts
+spec:
+  selector:
+    matchLabels:
+      app: database-sts
+  podManagementPolicy: Parallel
+  serviceName: "database"
+  replicas: 48
+  template:
+    metadata:
+      labels:
+        app: database-sts
+    spec:
+      terminationGracePeriodSeconds: 5
+      affinity:
+        podAffinity:
+          # requiredDuringSchedulingIgnoredDuringExecution:
+          # - labelSelector:
+          #     matchExpressions:
+          #     - key: app
+          #       operator: In
+          #       values:
+          #       - webapp-deploy
+          #   topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - webapp-deploy
+              topologyKey: kubernetes.io/hostname
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - database-sts
+            topologyKey: kubernetes.io/hostname
+      tolerations:
+      - key: harm.cn/system
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: database
+        image: harbor.myk8s.aliyunpoc.com/library/busybox
+        command:
+        - sh
+        - "-c"
+        - |
+          while true; do
+            echo "huizhi testing";
+            echo "yes ">>/data/yes.txt;
+            sleep 120s
+          done;
+        resources: # 必填：resource情况
+          requests:
+            cpu: 24
+            memory: 128Gi
+          limits:
+            cpu: 24
+            memory: 128Gi

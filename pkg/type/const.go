@@ -10,16 +10,16 @@ const (
 	NewNodeNamePrefix    = "simon"
 	DefaultSchedulerName = corev1.DefaultSchedulerName
 
-	StopReasonSuccess = "everything is ok"
+	StopReasonSuccess   = "everything is ok"
+	StopReasonDoNotStop = "do not stop"
 
-	AnnoPodProvisioner    = "simon/provisioned-by"
 	AnnoWorkloadKind      = "simon/workload-kind"
 	AnnoWorkloadName      = "simon/workload-name"
 	AnnoWorkloadNamespace = "simon/workload-namespace"
 
-	LabelDaemonSetFromCluster = "daemonset-from-cluster"
-	LabelNewNode              = "new-node"
-	LabelNewPod               = "new-pod"
+	LabelDaemonSetFromCluster = "simon/daemonset-from-cluster"
+	LabelNewNode              = "simon/new-node"
+	LabelNewPod               = "simon/new-pod"
 
 	WorkloadKindDeployment  = "Deployment"
 	WorkloadKindStatefulSet = "StatefulSet"

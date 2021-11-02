@@ -168,22 +168,24 @@ func GetRecorderFactory(cc *schedconfig.CompletedConfig) profile.RecorderFactory
 }
 
 // GetValidPodExcludeDaemonSet gets valid pod by resources exclude DaemonSet that needs to be handled specially
-func GetValidPodExcludeDaemonSet(resources *simontype.ResourceTypes) {
-
+func GetValidPodExcludeDaemonSet(resources *simontype.ResourceTypes) []*corev1.Pod {
+	var pods []*corev1.Pod = make([]*corev1.Pod, 0)
 	//get valid pods by pods
-	for i, item := range resources.Pods {
-		resources.Pods[i] = MakeValidPodByPod(item)
+	for _, item := range resources.Pods {
+		pods = append(pods, MakeValidPodByPod(item))
 	}
 
 	// get all pods from deployment
 	for _, deploy := range resources.Deployments {
-		resources.Pods = append(resources.Pods, MakeValidPodsByDeployment(deploy)...)
+		pods = append(pods, MakeValidPodsByDeployment(deploy)...)
 	}
 
 	// get all pods from statefulset
 	for _, sts := range resources.StatefulSets {
-		resources.Pods = append(resources.Pods, MakeValidPodsByStatefulSet(sts)...)
+		pods = append(pods, MakeValidPodsByStatefulSet(sts)...)
 	}
+
+	return pods
 }
 
 func MakeValidPodsByDeployment(deploy *apps.Deployment) []*corev1.Pod {
@@ -315,7 +317,6 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 	if newPod.ObjectMeta.Annotations == nil {
 		newPod.ObjectMeta.Annotations = map[string]string{}
 	}
-	newPod.ObjectMeta.Annotations[simontype.AnnoPodProvisioner] = simontype.DefaultSchedulerName
 	// todo: handle pvc
 	if !ValidatePod(newPod) {
 		os.Exit(1)
@@ -491,4 +492,14 @@ func MultiplyQuant(quant resource.Quantity, factor float64) resource.Quantity {
 func GetNodeAllocatable(node *corev1.Node) (resource.Quantity, resource.Quantity) {
 	nodeAllocatable := node.Status.Allocatable.DeepCopy()
 	return *nodeAllocatable.Cpu(), *nodeAllocatable.Memory()
+}
+
+func GetTotalNumberOfPodsWithoutNodeName(pods []*corev1.Pod) int64 {
+	var podsWithoutNodeNameCount int64 = 0
+	for _, item := range pods {
+		if item.Spec.NodeName == "" {
+			podsWithoutNodeNameCount++
+		}
+	}
+	return podsWithoutNodeNameCount
 }
