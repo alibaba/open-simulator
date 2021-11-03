@@ -11,6 +11,7 @@ import (
 	"github.com/alibaba/open-simulator/pkg/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"helm.sh/helm/v3/pkg/chart/loader"
 	corev1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
@@ -52,6 +53,14 @@ func run(opts *Options) error {
 	if err := opts.checkArgs(); err != nil {
 		return fmt.Errorf("Args Error: %v ", err)
 	}
+
+	chartRequested, err := loader.Load(opts.AppConfig)
+	if err != nil {
+		return err
+	}
+	fmt.Println(chartRequested)
+
+	return nil
 
 	// Step 1: convert recursively the application directory into a series of file paths
 	appFilePaths, err := utils.ParseFilePath(opts.AppConfig)
