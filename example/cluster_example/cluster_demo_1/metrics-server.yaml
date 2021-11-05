@@ -52,10 +52,10 @@ spec:
         name: metrics-server
         resources:
           limits:
-            cpu: "125"
+            cpu: "2"
             memory: 2000Mi
           requests:
-            cpu: 125
+            cpu: 1
             memory: 500Mi
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File

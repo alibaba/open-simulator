@@ -7,6 +7,7 @@ import (
 
 const (
 	SimonPluginName      = "Simon"
+	OpenLocalPluginName  = "Open-Local"
 	NewNodeNamePrefix    = "simon"
 	DefaultSchedulerName = corev1.DefaultSchedulerName
 
@@ -16,6 +17,8 @@ const (
 	AnnoWorkloadKind      = "simon/workload-kind"
 	AnnoWorkloadName      = "simon/workload-name"
 	AnnoWorkloadNamespace = "simon/workload-namespace"
+	AnnoNodeLocalStorage  = "simon/node-local-storage"
+	AnnoPodLocalStorage   = "simon/pod-local-storage"
 
 	LabelDaemonSetFromCluster = "simon/daemonset-from-cluster"
 	LabelNewNode              = "simon/new-node"

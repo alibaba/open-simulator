@@ -9,7 +9,6 @@ import (
 	"github.com/alibaba/open-simulator/pkg/simulator"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/alibaba/open-simulator/pkg/utils"
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -42,7 +41,7 @@ func init() {
 	options.AddFlags(ApplyCmd.Flags())
 
 	if err := ApplyCmd.MarkFlagRequired("app-config"); err != nil {
-		log.Fatal("init ApplyCmd on app-config flag failed")
+		fmt.Printf(utils.ColorRed+"init ApplyCmd on app-config flag failed: %s"+utils.ColorReset, err.Error())
 		return
 	}
 }
@@ -211,14 +210,39 @@ func getAndSetSchedulerConfig(defaultSchedulerConfigFile string, breed bool) (*c
 		kcfg.Profiles[0].Plugins = &kubeschedulerconfig.Plugins{}
 	}
 
+	kcfg.Profiles[0].Plugins.Filter = &kubeschedulerconfig.PluginSet{
+		Enabled: []kubeschedulerconfig.Plugin{
+			{
+				Name: simontype.OpenLocalPluginName,
+			},
+		},
+	}
 	if breed {
 		kcfg.Profiles[0].Plugins.Score = &kubeschedulerconfig.PluginSet{
-			Enabled: []kubeschedulerconfig.Plugin{{Name: simontype.SimonPluginName}},
+			Enabled: []kubeschedulerconfig.Plugin{
+				{
+					Name: simontype.SimonPluginName,
+				},
+				{
+					Name: simontype.OpenLocalPluginName,
+				},
+			},
 		}
 	}
 	kcfg.Profiles[0].Plugins.Bind = &kubeschedulerconfig.PluginSet{
-		Enabled:  []kubeschedulerconfig.Plugin{{Name: simontype.SimonPluginName}},
-		Disabled: []kubeschedulerconfig.Plugin{{Name: defaultbinder.Name}},
+		Enabled: []kubeschedulerconfig.Plugin{
+			{
+				Name: simontype.OpenLocalPluginName,
+			},
+			{
+				Name: simontype.SimonPluginName,
+			},
+		},
+		Disabled: []kubeschedulerconfig.Plugin{
+			{
+				Name: defaultbinder.Name,
+			},
+		},
 	}
 	// set percentageOfNodesToScore value to 100
 	kcfg.PercentageOfNodesToScore = 100

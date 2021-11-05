@@ -1,0 +1,10 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: open-local-device-hdd
+provisioner: local.csi.aliyun.com
+parameters:
+  volumeType: Device
+  mediaType: hdd
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
