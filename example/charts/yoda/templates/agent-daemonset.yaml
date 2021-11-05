@@ -1,0 +1,177 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: yoda-agent
+  namespace: {{ .Values.yoda_namespace }}
+  labels:
+    trident-app: yoda
+    app: yoda-agent
+spec:
+  selector:
+    matchLabels:
+      app: yoda-agent
+  template:
+    metadata:
+      labels:
+        trident-app: yoda
+        app: yoda-agent
+    spec:
+      tolerations:
+        - operator: Exists
+      serviceAccount: yoda
+      priorityClassName: system-node-critical
+      hostNetwork: true
+      hostPID: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: agent
+        args :
+          - agent
+          - "--nodename=$(KUBE_NODE_NAME)"
+          - "--path.sysfs=/host_sys"
+          - "--path.mount={{ .Values.localvolume_base_path }}"
+          - "--regexp={{ .Values.regexp }}"
+          - "--interval=30"
+          - "--initconfig=yoda"
+        env:
+          - name: KUBE_NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: HOST_SYS
+            value: "/host_sys"
+          - name: TZ
+            value: Asia/Shanghai
+        securityContext:
+          privileged: true
+          capabilities:
+            add: ["SYS_ADMIN"]
+          allowPrivilegeEscalation: true
+        image: "{{ .Values.globalconfig.RegistryURL }}/{{ .Values.images.agent.image }}:{{ .Values.images.agent.tag }}"
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 800m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        volumeMounts:
+          - mountPath: /dev
+            mountPropagation: "HostToContainer"
+            name: host-dev
+          - name: sys
+            readOnly: true
+            mountPropagation: "HostToContainer"
+            mountPath: "/host_sys"
+          - mountPath: {{ .Values.localvolume_base_path }}
+            name: localvolume
+            mountPropagation: "Bidirectional"
+      - name: driver-registrar
+        image: "{{ .Values.globalconfig.RegistryURL }}/{{ .Values.images.node_driver_register.image }}:{{ .Values.images.node_driver_register.tag }}"
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--v=5"
+          - "--csi-address=/csi/csi.sock"
+          - "--kubelet-registration-path=/var/lib/kubelet/plugins/yodaplugin.csi.alibabacloud.com/csi.sock"
+        env:
+          - name: KUBE_NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: TZ
+            value: Asia/Shanghai
+        resources:
+          limits:
+            cpu: 200m
+            memory: 128Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+        volumeMounts:
+          - name: plugin-dir
+            mountPath: /csi
+          - name: registration-dir
+            mountPath: /registration
+      - name: csi-yodaplugin
+        securityContext:
+          privileged: true
+          capabilities:
+            add: ["SYS_ADMIN"]
+          allowPrivilegeEscalation: true
+        image: "{{ .Values.globalconfig.RegistryURL }}/{{ .Values.images.node_driver.image }}:{{ .Values.images.node_driver.tag }}"
+        imagePullPolicy: IfNotPresent
+        args:
+          - csi
+          - "--endpoint=$(CSI_ENDPOINT)"
+          - "--nodeID=$(KUBE_NODE_NAME)"
+          - "--driver=yodaplugin.csi.alibabacloud.com"
+        env:
+          - name: KUBE_NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: CSI_ENDPOINT
+            value: unix://var/lib/kubelet/plugins/yodaplugin.csi.alibabacloud.com/csi.sock
+          - name: TZ
+            value: Asia/Shanghai
+          - name: SCHEDULER_HOST
+            value: "http://10.96.0.4:23000"
+          - name: ISSUE_ORPHANED_POD
+            value: "true"
+          - name: ISSUE_BLOCK_REFERENCE
+            value: "true"
+          - name: ISSUE_MESSAGE_FILE
+            value: "true"
+        resources:
+          limits:
+            cpu: 800m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        volumeMounts:
+          - name: pods-mount-dir
+            mountPath: /var/lib/kubelet
+            mountPropagation: "Bidirectional"
+          - mountPath: /dev
+            mountPropagation: "HostToContainer"
+            name: host-dev
+          - mountPath: {{ .Values.localvolume_base_path }}
+            mountPropagation: "Bidirectional"
+            name: localvolume
+          - mountPath: /var/log
+            name: host-log
+      volumes:
+        - name: host-dev
+          hostPath:
+            path: /dev
+        - name: sys
+          hostPath:
+            path: "/sys"
+        - name: plugin-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/yodaplugin.csi.alibabacloud.com
+            type: DirectoryOrCreate
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
+            type: DirectoryOrCreate
+        - name: pods-mount-dir
+          hostPath:
+            path: /var/lib/kubelet
+            type: Directory
+        - name: localvolume
+          hostPath:
+            path: {{ .Values.localvolume_base_path }}
+            type: DirectoryOrCreate
+        - name: host-log
+          hostPath:
+            path: /var/log
+            type: DirectoryOrCreate
+  updateStrategy:
+    type: RollingUpdate
+

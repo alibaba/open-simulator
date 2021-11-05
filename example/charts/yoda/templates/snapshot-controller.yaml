@@ -1,0 +1,59 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: csi-yoda-snapshot-controller
+  namespace: {{ .Values.yoda_namespace }}
+  labels:
+    app: csi-yoda-snapshot-controller
+spec:
+  selector:
+    matchLabels:
+      app: csi-yoda-snapshot-controller
+{{- if .Values.globalconfig.SingleMasterMode }}
+  replicas: 1
+{{- else }}
+  replicas: 2
+{{- end }}
+  template:
+    metadata:
+      labels:
+        app: csi-yoda-snapshot-controller
+    spec:
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/master
+                operator: Exists
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: csi-yoda-snapshot-controller
+            topologyKey: kubernetes.io/hostname
+      priorityClassName: system-node-critical
+      serviceAccount: yoda
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: csi-snapshotter
+          image: "{{ .Values.globalconfig.RegistryURL }}/{{ .Values.images.snapshot_controller.image }}:{{ .Values.images.snapshot_controller.tag }}"
+          args:
+            - --v=5
+            - --leader-election=true
+          env:
+            - name: TZ
+              value: Asia/Shanghai
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi

@@ -2,16 +2,13 @@ package apply
 
 import (
 	"fmt"
-	"os"
-	"sort"
-
 	"github.com/alibaba/open-simulator/pkg/algo"
+	"github.com/alibaba/open-simulator/pkg/chart"
 	"github.com/alibaba/open-simulator/pkg/simulator"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/alibaba/open-simulator/pkg/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"helm.sh/helm/v3/pkg/chart/loader"
 	corev1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
@@ -24,6 +21,8 @@ import (
 	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	kubeschedulerscheme "k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
+	"os"
+	"sort"
 )
 
 var options = Options{}
@@ -48,22 +47,23 @@ func init() {
 	}
 }
 
-func run(opts *Options) error {
+func run(opts *Options) (err error) {
 	// Step 0: check args of options
 	if err := opts.checkArgs(); err != nil {
 		return fmt.Errorf("Args Error: %v ", err)
 	}
 
-	chartRequested, err := loader.Load(opts.AppConfig)
-	if err != nil {
-		return err
-	}
-	fmt.Println(chartRequested)
+	newPath := opts.AppConfig
 
-	return nil
+	if opts.Chart {
+		newPath, err = chart.ProcessChart(opts.AppConfig)
+		if err != nil {
+			return err
+		}
+	}
 
 	// Step 1: convert recursively the application directory into a series of file paths
-	appFilePaths, err := utils.ParseFilePath(opts.AppConfig)
+	appFilePaths, err := utils.ParseFilePath(newPath)
 	if err != nil {
 		return fmt.Errorf("Failed to parse the application config path: %v ", err)
 	}

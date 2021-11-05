@@ -1,0 +1,70 @@
+yoda_namespace: kube-system   # Yoda命名空间, 1.17版本之前的K8s必须指定为kube-system
+images:                       # 镜像
+  scheduler:
+    image: oecp/open-local
+    tag: v0.2.1
+  provisioner:
+    image: oecp/csi-provisioner
+    tag: v2.2.2
+  resizer:
+    image: oecp/csi-resizer
+    tag: v1.3.0
+  snapshotter:
+    image: oecp/csi-snapshotter
+    tag: v3.0.3
+  snapshot_controller:
+    image: oecp/snapshot-controller
+    tag: v3.0.3
+  agent:
+    image: oecp/open-local
+    tag: v0.2.1
+  node_driver_register:
+    image: oecp/csi-node-driver-registrar
+    tag: v2.3.0
+  node_driver:
+    image: oecp/open-local
+    tag: v0.2.1
+  busybox:
+    image: oecp/busybox
+    tag: stable
+storageclass:                 # 存储类配置
+  lvm:                        # 默认lvm, 无须指定VG名称
+    name: yoda-lvm-default
+  mountpoint_hdd:             # hdd类型挂载盘
+    name: yoda-mountpoint-hdd
+  mountpoint_ssd:             # ssd类型挂载盘
+    name: yoda-mountpoint-ssd
+  device_hdd:                 # hdd类型块设备
+    name: yoda-device-hdd
+  device_ssd:                 # ssd类型块设备
+    name: yoda-device-ssd
+
+snapshotclass:
+  name: yoda-lvm-default
+
+# 挂载盘目录
+localvolume_base_path: /mnt/yoda/
+# 调度算法: binpack 或 spread
+scheduler_strategy: binpack
+# 正则表达式，用来发现块设备
+# 下方表达式将Yoda会发现诸如sda、vdb等命名方式的块设备
+regexp: ^(s|v|xv)d[a-z]+$
+# 要初始化的VG名称
+vgname: yoda-pool
+
+globalconfig:
+  # 要初始化的块设备
+  YodaSchedulerSvcIP: 10.96.0.4
+  YodaDevice: ""
+  RegistryURL: registry.cn-hangzhou.aliyuncs.com
+  # 单master模式
+  SingleMasterMode: false
+  # 传递给yoda使用的VG列表，以,隔开
+  YodaVGs: ""
+  YodaSchedulerNodePort: "32747"
+cronJobInfo:
+  schedule: "0 * * * *" # every hour
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  completions: 1
+  parallelism: 1
