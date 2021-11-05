@@ -30,6 +30,6 @@ const (
 	ConfigMapFileName  = "configmap-simon.yaml"
 
 	NotesFileSuffix            = "NOTES.txt"
-	DirectoryForChart          = "chart_yaml"
+	DirectoryForChart          = "/tmp/charts"
 	DefaultDirectoryPermission = 0755
 )

@@ -56,10 +56,11 @@ func run(opts *Options) (err error) {
 	newPath := opts.AppConfig
 
 	if opts.Chart {
-		newPath, err = chart.ProcessChart(opts.AppConfig)
+		err = chart.ProcessChart(opts.AppConfig)
 		if err != nil {
 			return err
 		}
+		newPath = simontype.DirectoryForChart
 	}
 
 	// Step 1: convert recursively the application directory into a series of file paths

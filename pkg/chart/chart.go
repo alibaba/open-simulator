@@ -15,32 +15,33 @@ import (
 	"strings"
 )
 
-func ProcessChart(chartPath string) (string, error) {
+// ProcessChart parses chart to /tmp/charts
+func ProcessChart(chartPath string) error {
 	chartRequested, err := loader.Load(chartPath)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	if err := checkIfInstallable(chartRequested); err != nil {
-		return "", err
+		return err
 	}
 
+	// TODO
 	var vals map[string]interface{}
 	if err := chartutil.ProcessDependencies(chartRequested, vals); err != nil {
-		return "", err
+		return err
 	}
 
 	valuesToRender, err := ToRenderValues(chartRequested, vals)
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	outputDir := path.Join(path.Dir(path.Dir(chartPath)), simontype.DirectoryForChart)
-	err = renderResources(chartRequested, valuesToRender, true, outputDir)
-	if err != nil {
-		return "", err
+	if err = renderResources(chartRequested, valuesToRender, true, simontype.DirectoryForChart); err != nil {
+		return err
 	}
-	return outputDir, nil
+
+	return nil
 }
 
 // checkIfInstallable validates if a chart can be installed
