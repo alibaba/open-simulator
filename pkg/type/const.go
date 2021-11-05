@@ -28,4 +28,8 @@ const (
 	ConfigMapName      = "simulator-plan"
 	ConfigMapNamespace = metav1.NamespaceSystem
 	ConfigMapFileName  = "configmap-simon.yaml"
+
+	NotesFileSuffix            = "NOTES.txt"
+	DirectoryForChart          = "/tmp/charts"
+	DefaultDirectoryPermission = 0755
 )
