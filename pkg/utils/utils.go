@@ -81,7 +81,7 @@ func GetObjectsFromFiles(filePaths []string) (simontype.ResourceTypes, error) {
 		case *corev1.Node:
 			resources.Nodes = append(resources.Nodes, o)
 			storageFile := fmt.Sprintf("%s.json", strings.TrimSuffix(f, filepath.Ext(f)))
-			if err := AddLocalStorageInfoInNode(o, storageFile); err != nil {
+			if err := AddLocalStorageInfoInNode(o, storageFile); !errors.Is(err, os.ErrNotExist) {
 				return resources, err
 			}
 		case *corev1.Pod:
@@ -136,7 +136,7 @@ func DecodeYamlFile(file string) runtime.Object {
 }
 
 func ReadJsonFile(file string) (string, error) {
-	if _, err := os.Stat(file); errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(file); err != nil {
 		return "", nil
 	}
 

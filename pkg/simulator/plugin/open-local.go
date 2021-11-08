@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"time"
 
 	"github.com/pquerna/ffjson/ffjson"
 	log "github.com/sirupsen/logrus"
@@ -36,13 +35,6 @@ type LocalPlugin struct {
 var _ = framework.FilterPlugin(&LocalPlugin{})
 var _ = framework.ScorePlugin(&LocalPlugin{})
 var _ = framework.BindPlugin(&LocalPlugin{})
-
-var (
-	noResyncPeriodFunc = func() time.Duration {
-		log.Debugln("test noResyncPeriodFunc")
-		return 0
-	}
-)
 
 // NewLocalPlugin
 func NewLocalPlugin(schedulerName string, fakeclient externalclientset.Interface, storageInformers storagev1informers.Interface, configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {

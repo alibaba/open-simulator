@@ -322,7 +322,7 @@ func (sim *Simulator) Report() {
 				fmt.Printf("err when unmarshal json data, node is %s\n", node.Name)
 				return
 			}
-			storageData := []string{}
+			var storageData []string
 			for _, vg := range nodeStorage.VGs {
 				capacity := resource.NewQuantity(vg.Capacity, resource.BinarySI)
 				request := resource.NewQuantity(vg.Requested, resource.BinarySI)
