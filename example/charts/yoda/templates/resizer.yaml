@@ -1,0 +1,82 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: csi-yoda-resizer
+  namespace: {{ .Values.yoda_namespace }}
+  labels:
+    app: csi-yoda-resizer
+    trident-app: yoda
+spec:
+{{- if .Values.globalconfig.SingleMasterMode }}
+  replicas: 1
+{{- else }}
+  replicas: 2
+{{- end }}
+  selector:
+    matchLabels:
+      app: csi-yoda-resizer
+  progressDeadlineSeconds: 20
+  strategy:
+    rollingUpdate:
+      maxSurge: 5
+      maxUnavailable: 5
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        trident-app: yoda
+        app: csi-yoda-resizer
+    spec:
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      priorityClassName: system-node-critical
+      serviceAccount: yoda
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/master
+                operator: Exists
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: csi-yoda-resizer
+            topologyKey: kubernetes.io/hostname
+          - labelSelector:
+              matchLabels:
+                app: csi-yoda-resizer
+            topologyKey: failure-domain.beta.kubernetes.io/zone
+      containers:
+        - name: csi-resizer
+          image: "{{ .Values.globalconfig.RegistryURL }}/{{ .Values.images.resizer.image }}:{{ .Values.images.resizer.tag }}"
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          args:
+            - "--v=5"
+            - "--csi-address=$(ADDRESS)"
+            - "--leader-election=true"
+          env:
+            - name: ADDRESS
+              value: /var/lib/kubelet/plugins/yodaplugin.csi.alibabacloud.com/csi.sock
+            - name: TZ
+              value: Asia/Shanghai
+          imagePullPolicy: "IfNotPresent"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/kubelet/plugins/yodaplugin.csi.alibabacloud.com
+      volumes:
+        - name: socket-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/yodaplugin.csi.alibabacloud.com
+            type: DirectoryOrCreate

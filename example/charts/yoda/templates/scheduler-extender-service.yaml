@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: yoda
+    trident-app: yoda
+  name: yoda-scheduler-extender-service
+  namespace: {{ .Values.yoda_namespace }}
+spec:
+  clusterIP: {{ .Values.globalconfig.YodaSchedulerSvcIP }}
+  selector:
+    control-plane: yoda-scheduler-extender
+  ports:
+    - protocol: TCP
+      port: 23000
+      targetPort: 23000
+      name: http-metrics
+      nodePort: {{ int $.Values.globalconfig.YodaSchedulerNodePort }}
+  type: NodePort

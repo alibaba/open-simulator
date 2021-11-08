@@ -6,19 +6,20 @@ require (
 	github.com/alibaba/open-local v0.2.4-0.20211108031201-b31116301645
 	github.com/olekukonko/tablewriter v0.0.5
 	github.com/pquerna/ffjson v0.0.0-20190930134022-aa0246cd15f7
-	github.com/sirupsen/logrus v1.6.0
+	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/pflag v1.0.5
 	golang.org/x/net v0.0.0-20210805182204-aaa1db679c0d // indirect
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
 	golang.org/x/sys v0.0.0-20211025201205-69cdffdb9359 // indirect
-	k8s.io/api v0.20.5
-	k8s.io/apimachinery v0.20.5
-	k8s.io/client-go v0.20.5
+	helm.sh/helm/v3 v3.6.2
+	k8s.io/api v0.21.0
+	k8s.io/apimachinery v0.21.0
+	k8s.io/client-go v0.21.0
 	k8s.io/component-base v0.20.5
 	k8s.io/klog/v2 v2.9.0 // indirect
 	k8s.io/kube-scheduler v0.20.5
-	k8s.io/kubectl v0.20.5
+	k8s.io/kubectl v0.21.0
 	k8s.io/kubernetes v1.20.5
 )
 

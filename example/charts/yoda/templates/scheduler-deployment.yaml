@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: yoda-scheduler-extender
+  namespace: {{ .Values.yoda_namespace }}
+  labels:
+    trident-app: yoda
+    control-plane: yoda-scheduler-extender
+spec:
+  progressDeadlineSeconds: 20
+  strategy:
+    rollingUpdate:
+      maxSurge: 5
+      maxUnavailable: 5
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      control-plane: yoda-scheduler-extender
+  template:
+    metadata:
+      labels:
+        trident-app: yoda
+        control-plane: yoda-scheduler-extender
+    spec:
+      priorityClassName: system-node-critical
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/master
+                operator: Exists
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: control-plane
+                operator: In
+                values:
+                - yoda-scheduler-extender
+            topologyKey: kubernetes.io/hostname
+          - labelSelector:
+              matchLabels:
+                control-plane: yoda-scheduler-extender
+            topologyKey: failure-domain.beta.kubernetes.io/zone
+      containers:
+        - args:
+            - scheduler
+            - --port=23000
+            - --enabled-node-anti-affinity=MountPoint
+            - --scheduler-strategy={{ .Values.scheduler_strategy }}
+          image: "{{ .Values.globalconfig.RegistryURL }}/{{ .Values.images.scheduler.image }}:{{ .Values.images.scheduler.tag }}"
+          imagePullPolicy: IfNotPresent
+          name: yoda-scheduler-extender
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/yoda-scheduler-extender
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          env:
+          - name: PodIP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: TZ
+            value: Asia/Shanghai
+      serviceAccount: yoda
+      terminationGracePeriodSeconds: 10
+      volumes:
+        - name: data
+          hostPath:
+            path: /var/lib/docker/data/{{ .Release.Name }}/scheduler
+            type: DirectoryOrCreate
