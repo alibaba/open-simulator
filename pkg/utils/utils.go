@@ -15,6 +15,7 @@ import (
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/pquerna/ffjson/ffjson"
 	log "github.com/sirupsen/logrus"
+	"helm.sh/helm/v3/pkg/releaseutil"
 	apps "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/api/policy/v1beta1"
@@ -74,46 +75,48 @@ func GetObjectsFromFiles(filePaths []string) (simontype.ResourceTypes, error) {
 	var resources simontype.ResourceTypes
 
 	for _, f := range filePaths {
-		obj := DecodeYamlFile(f)
-		switch o := obj.(type) {
-		case nil:
-			continue
-		case *corev1.Node:
-			resources.Nodes = append(resources.Nodes, o)
-			storageFile := fmt.Sprintf("%s.json", strings.TrimSuffix(f, filepath.Ext(f)))
-			if err := AddLocalStorageInfoInNode(o, storageFile); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return resources, err
+		objects := DecodeYamlFile(f)
+		for _, obj := range objects {
+			switch o := obj.(type) {
+			case nil:
+				continue
+			case *corev1.Node:
+				resources.Nodes = append(resources.Nodes, o)
+				storageFile := fmt.Sprintf("%s.json", strings.TrimSuffix(f, filepath.Ext(f)))
+				if err := AddLocalStorageInfoInNode(o, storageFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return resources, err
+				}
+			case *corev1.Pod:
+				resources.Pods = append(resources.Pods, o)
+			case *apps.DaemonSet:
+				resources.DaemonSets = append(resources.DaemonSets, o)
+			case *apps.StatefulSet:
+				resources.StatefulSets = append(resources.StatefulSets, o)
+			case *apps.Deployment:
+				resources.Deployments = append(resources.Deployments, o)
+			case *corev1.Service:
+				resources.Services = append(resources.Services, o)
+			case *corev1.PersistentVolumeClaim:
+				resources.PersistentVolumeClaims = append(resources.PersistentVolumeClaims, o)
+			case *corev1.ReplicationController:
+				resources.ReplicationControllers = append(resources.ReplicationControllers, o)
+			case *apps.ReplicaSet:
+				resources.ReplicaSets = append(resources.ReplicaSets, o)
+			case *v1.StorageClass:
+				resources.StorageClasss = append(resources.StorageClasss, o)
+			case *v1beta1.PodDisruptionBudget:
+				resources.PodDisruptionBudgets = append(resources.PodDisruptionBudgets, o)
+			default:
+				fmt.Printf("unknown type: %T\n", o)
+				continue
 			}
-		case *corev1.Pod:
-			resources.Pods = append(resources.Pods, o)
-		case *apps.DaemonSet:
-			resources.DaemonSets = append(resources.DaemonSets, o)
-		case *apps.StatefulSet:
-			resources.StatefulSets = append(resources.StatefulSets, o)
-		case *apps.Deployment:
-			resources.Deployments = append(resources.Deployments, o)
-		case *corev1.Service:
-			resources.Services = append(resources.Services, o)
-		case *corev1.PersistentVolumeClaim:
-			resources.PersistentVolumeClaims = append(resources.PersistentVolumeClaims, o)
-		case *corev1.ReplicationController:
-			resources.ReplicationControllers = append(resources.ReplicationControllers, o)
-		case *apps.ReplicaSet:
-			resources.ReplicaSets = append(resources.ReplicaSets, o)
-		case *v1.StorageClass:
-			resources.StorageClasss = append(resources.StorageClasss, o)
-		case *v1beta1.PodDisruptionBudget:
-			resources.PodDisruptionBudgets = append(resources.PodDisruptionBudgets, o)
-		default:
-			fmt.Printf("unknown type: %T\n", o)
-			continue
 		}
 	}
 	return resources, nil
 }
 
 // DecodeYamlFile captures the yml or yaml file, and decodes it
-func DecodeYamlFile(file string) runtime.Object {
+func DecodeYamlFile(file string) []runtime.Object {
 	fileExtension := filepath.Ext(file)
 	if fileExtension != ".yaml" && fileExtension != ".yml" {
 		return nil
@@ -124,15 +127,20 @@ func DecodeYamlFile(file string) runtime.Object {
 		os.Exit(1)
 	}
 
-	decode := scheme.Codecs.UniversalDeserializer().Decode
-	obj, _, err := decode(yamlFile, nil, nil)
+	objects := make([]runtime.Object, 0)
+	yamls := releaseutil.SplitManifests(string(yamlFile))
+	for _, yaml := range yamls {
+		decode := scheme.Codecs.UniversalDeserializer().Decode
+		obj, _, err := decode([]byte(yaml), nil, nil)
+		if err != nil {
+			fmt.Printf("Error while decoding YAML object. Err was: %s", err)
+			os.Exit(1)
+		}
 
-	if err != nil {
-		fmt.Printf("Error while decoding YAML object. Err was: %s", err)
-		os.Exit(1)
+		objects = append(objects, obj)
 	}
 
-	return obj
+	return objects
 }
 
 func ReadJsonFile(file string) (string, error) {
