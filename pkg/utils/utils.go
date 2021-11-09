@@ -17,6 +17,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"helm.sh/helm/v3/pkg/releaseutil"
 	apps "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	batchv1beta1 "k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/api/policy/v1beta1"
 	v1 "k8s.io/api/storage/v1"
@@ -102,6 +104,10 @@ func GetObjectsFromFiles(filePaths []string) (simontype.ResourceTypes, error) {
 				resources.ReplicationControllers = append(resources.ReplicationControllers, o)
 			case *apps.ReplicaSet:
 				resources.ReplicaSets = append(resources.ReplicaSets, o)
+			case *batchv1.Job:
+				resources.Jobs = append(resources.Jobs, o)
+			case *batchv1beta1.CronJob:
+				resources.CronJobs = append(resources.CronJobs, o)
 			case *v1.StorageClass:
 				resources.StorageClasss = append(resources.StorageClasss, o)
 			case *v1beta1.PodDisruptionBudget:
@@ -227,6 +233,16 @@ func GetValidPodExcludeDaemonSet(resources *simontype.ResourceTypes) []*corev1.P
 		pods = append(pods, MakeValidPodsByStatefulSet(sts)...)
 	}
 
+	// get all pods from job
+	for _, job := range resources.Jobs {
+		pods = append(pods, MakeValidPodByJob(job)...)
+	}
+
+	// get all pods from cronjob
+	for _, cronjob := range resources.CronJobs {
+		pods = append(pods, MakeValidPodByCronJob(cronjob)...)
+	}
+
 	return pods
 }
 
@@ -244,6 +260,35 @@ func MakeValidPodsByDeployment(deploy *apps.Deployment) []*corev1.Pod {
 		pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindDeployment, deploy.Name, pod.Namespace)
 		pods = append(pods, pod)
 	}
+	return pods
+}
+
+func MakeValidPodByJob(job *batchv1.Job) []*corev1.Pod {
+	var pods []*corev1.Pod
+	if job.Spec.Completions == nil {
+		var completions int32 = 1
+		job.Spec.Completions = &completions
+	}
+
+	for ordinal := 0; ordinal < int(*job.Spec.Completions); ordinal++ {
+		pod, _ := controller.GetPodFromTemplate(&job.Spec.Template, job, nil)
+		pod.ObjectMeta.Name = fmt.Sprintf("job-%s-%d", job.GetName(), ordinal)
+		pod.ObjectMeta.Namespace = job.GetNamespace()
+		pod = MakePodValid(pod)
+		pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindDeployment, pod.Name, pod.Namespace)
+		pods = append(pods, pod)
+	}
+
+	return pods
+}
+
+func MakeValidPodByCronJob(cronjob *batchv1beta1.CronJob) []*corev1.Pod {
+	job := new(batchv1.Job)
+	job.ObjectMeta.Name = cronjob.Name
+	job.ObjectMeta.Namespace = cronjob.Namespace
+	job.Spec = cronjob.Spec.JobTemplate.Spec
+
+	pods := MakeValidPodByJob(job)
 	return pods
 }
 

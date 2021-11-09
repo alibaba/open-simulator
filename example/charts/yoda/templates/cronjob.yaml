@@ -1,0 +1,73 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: yoda-maintenance
+  namespace: {{ .Values.yoda_namespace }}
+spec:
+  schedule: "{{ .Values.cronJobInfo.schedule }}"
+  successfulJobsHistoryLimit: {{ .Values.cronJobInfo.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.cronJobInfo.failedJobsHistoryLimit }}
+  jobTemplate:
+    metadata:
+      labels:
+        job: yoda-maintenance
+    spec:
+      completions: {{ .Values.cronJobInfo.completions }}
+      parallelism: {{ .Values.cronJobInfo.parallelism }}
+      template:
+        metadata:
+          name: yoda-maintenance
+          labels:
+            job: yoda-maintenance
+        spec:
+          tolerations:
+          - operator: Exists
+          - key: node-role.kubernetes.io/master
+            effect: NoSchedule
+          nodeSelector:
+            node-role.kubernetes.io/master: ""
+          hostNetwork: true
+          dnsPolicy: ClusterFirstWithHostNet
+          containers:
+          - name: yoda-maintenance
+            image: "{{ .Values.globalconfig.RegistryURL }}/{{ .Values.images.agent.image }}:{{ .Values.images.agent.tag }}"
+            imagePullPolicy: IfNotPresent
+            # 充分保障资源，让etcd backup job稳定运行
+            resources:
+              limits:
+                cpu: 50m
+                memory: 128Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+            env:
+            - name: TZ
+              value: Asia/Shanghai
+            command:
+            - /bin/sh
+            - "-c"
+            - |
+              set -x
+              # check yoda scheduler extender is ok
+              kubectl get po -nkube-system -l control-plane=yoda-scheduler-extender|grep Running
+              if [ "$?" != "0" ]; then
+                echo "yoda scheduler extender is not healthy, restart pod..."
+                kubectl delete po -nkube-system -l control-plane=yoda-scheduler-extender
+              else
+                echo "yoda scheduler extender is healthy"
+              fi
+            volumeMounts:
+            - name: kubectl
+              mountPath: /usr/bin/kubectl
+            - name: kubeconf
+              mountPath: /root/.kube/
+          restartPolicy: OnFailure
+          volumes:
+          - hostPath:
+              path: /usr/bin/kubectl
+              type: File
+            name: kubectl
+          - hostPath:
+              path: /root/.kube/
+              type: Directory
+            name: kubeconf
