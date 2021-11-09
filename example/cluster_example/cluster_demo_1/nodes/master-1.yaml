@@ -9,6 +9,10 @@ metadata:
     kubernetes.io/os: linux
     node-role.kubernetes.io/master: ""
   name: master-1
+spec:
+  taints:
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/master
 status:
   allocatable:
     cpu: "8"

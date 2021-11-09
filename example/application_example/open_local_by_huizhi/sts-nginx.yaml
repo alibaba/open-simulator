@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nginx-lvm
+spec:
+  selector:
+    matchLabels:
+      app: nginx-lvm
+  podManagementPolicy: Parallel
+  serviceName: "nginx-lvm"
+  replicas: 4
+  volumeClaimTemplates:
+  - metadata:
+      name: html-0
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      storageClassName: open-local-lvm
+      resources:
+        requests:
+          storage: 10Gi
+  - metadata:
+      name: html-1
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      storageClassName: open-local-lvm
+      resources:
+        requests:
+          storage: 40Gi
+  - metadata:
+      name: html-2
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      storageClassName: open-local-device-hdd
+      resources:
+        requests:
+          storage: 100Gi
+  template:
+    metadata:
+      labels:
+        app: nginx-lvm
+    spec:
+      # tolerations:
+      #   - key: node-role.kubernetes.io/master
+      #     operator: Exists
+      #     effect: NoSchedule
+      containers:
+      - name: nginx
+        image: nginx
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - mountPath: "/data"
+          name: html
+        command:
+        - sh
+        - "-c"
+        - |
+            while true; do
+              echo "huizhi testing";
+              echo "yes ">>/data/yes.txt;
+              sleep 120s
+            done;
+        resources:
+          requests:
+            cpu: 1
+            memory: 2Gi
+          limits:
+            cpu: 1
+            memory: 2Gi
