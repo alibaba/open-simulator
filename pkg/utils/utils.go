@@ -81,7 +81,7 @@ func GetObjectsFromFiles(filePaths []string) (simontype.ResourceTypes, error) {
 		case *corev1.Node:
 			resources.Nodes = append(resources.Nodes, o)
 			storageFile := fmt.Sprintf("%s.json", strings.TrimSuffix(f, filepath.Ext(f)))
-			if err := AddLocalStorageInfoInNode(o, storageFile); !errors.Is(err, os.ErrNotExist) {
+			if err := AddLocalStorageInfoInNode(o, storageFile); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return resources, err
 			}
 		case *corev1.Pod:
