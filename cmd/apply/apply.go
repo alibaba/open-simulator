@@ -4,19 +4,19 @@ import (
 	"fmt"
 	"os"
 
-	applyPkg "github.com/alibaba/open-simulator/pkg/apply"
+	applypkg "github.com/alibaba/open-simulator/pkg/apply"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
-var options = applyPkg.Options{}
+var options = applypkg.Options{}
 
 var ApplyCmd = &cobra.Command{
 	Use:   "apply",
 	Short: "Apply a configuration to a resource by filename or stdin.",
 	Run: func(cmd *cobra.Command, args []string) {
-		applier := new(applyPkg.DefaulterApply)
-		if err := applier.Run(options); err != nil {
+		applier := applypkg.NewApplier(options)
+		if err := applier.Run(); err != nil {
 			fmt.Printf("apply error: %s", err.Error())
 			os.Exit(1)
 		}
@@ -31,6 +31,5 @@ func init() {
 
 	if err := ApplyCmd.MarkFlagRequired("simon-config"); err != nil {
 		log.Fatal("init ApplyCmd on simon-config flag failed")
-		return
 	}
 }

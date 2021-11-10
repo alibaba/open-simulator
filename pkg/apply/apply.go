@@ -3,13 +3,18 @@ package apply
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"log"
+	"os"
+	"sigs.k8s.io/yaml"
+	"sort"
+
 	"github.com/alibaba/open-simulator/pkg/algo"
 	"github.com/alibaba/open-simulator/pkg/chart"
 	"github.com/alibaba/open-simulator/pkg/simulator"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/alibaba/open-simulator/pkg/utils"
-	simonv1 "github.com/alibaba/open-simulator/pkg/v1"
-	"io/ioutil"
+	"github.com/alibaba/open-simulator/pkg/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
@@ -22,9 +27,6 @@ import (
 	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	kubeschedulerscheme "k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
-	"os"
-	"sigs.k8s.io/yaml"
-	"sort"
 )
 
 type Options struct {
@@ -34,21 +36,17 @@ type Options struct {
 	Interactive                bool
 }
 
-type DefaulterApply struct {
-	Cluster         simonv1.Cluster
-	AppList         []simonv1.AppInfo
-	NewNode         string
-	SchedulerConfig string
-	UseGreed        bool
+type DefaultApply struct {
+	cluster         v1alpha1.Cluster
+	appList         []v1alpha1.AppInfo
+	newNode         string
+	schedulerConfig string
+	useGreed        bool
+	interactive     bool
 }
 
-func (applier *DefaulterApply) Run(opts Options) (err error) {
+func (applier *DefaultApply) Run() (err error) {
 	var resourceList []simontype.ResourceInfo
-
-	// Step 0: parse configuration file and args of options
-	if err = applier.ParseArgsAndConfigFile(opts); err != nil {
-		return fmt.Errorf("Parse Error: %v ", err)
-	}
 
 	// Step 1: verify the validity of the configuration
 	if err = applier.Validate(); err != nil {
@@ -56,7 +54,7 @@ func (applier *DefaulterApply) Run(opts Options) (err error) {
 	}
 
 	// Step2: convert a series of the application paths into the kubernetes objects
-	for _, app := range applier.AppList {
+	for _, app := range applier.appList {
 		newPath := app.Path
 
 		if app.Chart {
@@ -86,10 +84,10 @@ func (applier *DefaulterApply) Run(opts Options) (err error) {
 		resourceList = append(resourceList, newResource)
 	}
 
-	objects := utils.DecodeYamlFile(applier.NewNode)
+	objects := utils.DecodeYamlFile(applier.newNode)
 	newNode, exist := objects[0].(*corev1.Node)
 	if !exist {
-		return fmt.Errorf("The NewNode file(%s) is not a Node yaml ", applier.NewNode)
+		return fmt.Errorf("The NewNode file(%s) is not a Node yaml ", applier.newNode)
 	}
 
 	// Step 3: generate kube-client
@@ -116,7 +114,7 @@ func (applier *DefaulterApply) Run(opts Options) (err error) {
 		sim.RunScheduler()
 
 		// synchronize resources from real or simulated cluster to fake cluster
-		if err := sim.CreateFakeCluster(applier.Cluster.CustomCluster); err != nil {
+		if err := sim.CreateFakeCluster(applier.cluster.CustomCluster); err != nil {
 			return fmt.Errorf("create fake cluster failed: %s", err.Error())
 		}
 
@@ -138,7 +136,7 @@ func (applier *DefaulterApply) Run(opts Options) (err error) {
 			}
 
 			// sort pods
-			if applier.UseGreed {
+			if applier.useGreed {
 				greed := algo.NewGreedQueue(sim.GetNodes(), appPods)
 				sort.Sort(greed)
 				// tol := algo.NewTolerationQueue(pods)
@@ -160,7 +158,7 @@ func (applier *DefaulterApply) Run(opts Options) (err error) {
 				if err := sim.CreateConfigMapAndSaveItToFile(simontype.ConfigMapFileName); err != nil {
 					return err
 				}
-				if opts.Interactive {
+				if applier.interactive {
 					prompt := fmt.Sprintf("%s scheduled succeessfully, continue(y/n)?", resourceInfo.Name)
 					if utils.Confirm(prompt) {
 						continue
@@ -180,20 +178,45 @@ func (applier *DefaulterApply) Run(opts Options) (err error) {
 	return nil
 }
 
+func NewApplier(opts Options) DefaultApply {
+	simonCR := &v1alpha1.Simon{}
+	configFile, err := ioutil.ReadFile(opts.SimonConfig)
+	if err != nil {
+		log.Fatalf("failed to read config file(%s): %v", opts.SimonConfig, err)
+	}
+	configJSON, err := yaml.YAMLToJSON(configFile)
+	if err != nil {
+		log.Fatalf("failed to unmarshal config file(%s) to json: %v", opts.SimonConfig, err)
+	}
+
+	if err := json.Unmarshal(configJSON, simonCR); err != nil {
+		log.Fatalf("failed to unmarshal config json to object: %v", err)
+	}
+
+	return DefaultApply{
+		cluster:         simonCR.Spec.Cluster,
+		appList:         simonCR.Spec.AppList,
+		newNode:         simonCR.Spec.NewNode,
+		schedulerConfig: opts.DefaultSchedulerConfigFile,
+		useGreed:        opts.UseGreed,
+		interactive:     opts.Interactive,
+	}
+}
+
 // generateKubeClient generates kube-client by kube-config. And if kube-config file is not provided, the value of kube-client will be nil
-func (applier *DefaulterApply) generateKubeClient() (*clientset.Clientset, error) {
-	if len(applier.Cluster.KubeConfig) == 0 {
+func (applier *DefaultApply) generateKubeClient() (*clientset.Clientset, error) {
+	if len(applier.cluster.KubeConfig) == 0 {
 		return nil, nil
 	}
 
 	var err error
 	var cfg *restclient.Config
-	master, err := utils.GetMasterFromKubeConfig(applier.Cluster.KubeConfig)
+	master, err := utils.GetMasterFromKubeConfig(applier.cluster.KubeConfig)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to parse kubeclient file: %v ", err)
 	}
 
-	cfg, err = clientcmd.BuildConfigFromFlags(master, applier.Cluster.KubeConfig)
+	cfg, err = clientcmd.BuildConfigFromFlags(master, applier.cluster.KubeConfig)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to build config: %v ", err)
 	}
@@ -206,7 +229,7 @@ func (applier *DefaulterApply) generateKubeClient() (*clientset.Clientset, error
 }
 
 // getAndSetSchedulerConfig gets scheduler CompletedConfig and sets the list of scheduler bind plugins to Simon.
-func (applier *DefaulterApply) getAndSetSchedulerConfig() (*config.CompletedConfig, error) {
+func (applier *DefaultApply) getAndSetSchedulerConfig() (*config.CompletedConfig, error) {
 	versionedCfg := kubeschedulerconfigv1beta1.KubeSchedulerConfiguration{}
 	versionedCfg.DebuggingConfiguration = *configv1alpha1.NewRecommendedDebuggingConfiguration()
 	kubeschedulerscheme.Scheme.Default(&versionedCfg)
@@ -224,7 +247,7 @@ func (applier *DefaulterApply) getAndSetSchedulerConfig() (*config.CompletedConf
 		kcfg.Profiles[0].Plugins = &kubeschedulerconfig.Plugins{}
 	}
 
-	if applier.UseGreed {
+	if applier.useGreed {
 		kcfg.Profiles[0].Plugins.Score = &kubeschedulerconfig.PluginSet{
 			Enabled: []kubeschedulerconfig.Plugin{{Name: simontype.SimonPluginName}},
 		}
@@ -237,7 +260,7 @@ func (applier *DefaulterApply) getAndSetSchedulerConfig() (*config.CompletedConf
 	kcfg.PercentageOfNodesToScore = 100
 	opts := &schedoptions.Options{
 		ComponentConfig: kcfg,
-		ConfigFile:      applier.SchedulerConfig,
+		ConfigFile:      applier.schedulerConfig,
 		Logs:            logs.NewOptions(),
 	}
 	cc, err := utils.InitKubeSchedulerConfiguration(opts)
@@ -247,61 +270,37 @@ func (applier *DefaulterApply) getAndSetSchedulerConfig() (*config.CompletedConf
 	return cc, nil
 }
 
-func (applier *DefaulterApply) ParseArgsAndConfigFile(opts Options) error {
-	simonCR := &simonv1.Simon{}
-	configFile, err := ioutil.ReadFile(opts.SimonConfig)
-	if err != nil {
-		return fmt.Errorf("failed to read config file(%s): %v", opts.SimonConfig, err)
-	}
-	configJSON, err := yaml.YAMLToJSON(configFile)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal config file(%s) to json: %v", opts.SimonConfig, err)
-	}
-
-	if err := json.Unmarshal(configJSON, simonCR); err != nil {
-		return fmt.Errorf("failed to unmarshal config json to object: %v", err)
-	}
-
-	applier.Cluster = simonCR.Spec.Cluster
-	applier.AppList = simonCR.Spec.AppList
-	applier.NewNode = simonCR.Spec.NewNode
-	applier.SchedulerConfig = opts.DefaultSchedulerConfigFile
-	applier.UseGreed = opts.UseGreed
-
-	return nil
-}
-
-func (applier *DefaulterApply) Validate() error {
-	if len(applier.Cluster.KubeConfig) == 0 && len(applier.Cluster.CustomCluster) == 0 ||
-		len(applier.Cluster.KubeConfig) != 0 && len(applier.Cluster.CustomCluster) != 0 {
+func (applier *DefaultApply) Validate() error {
+	if len(applier.cluster.KubeConfig) == 0 && len(applier.cluster.CustomCluster) == 0 ||
+		len(applier.cluster.KubeConfig) != 0 && len(applier.cluster.CustomCluster) != 0 {
 		return fmt.Errorf("only one of values of both kubeConfig and customConfig must exist")
 	}
 
-	if len(applier.Cluster.KubeConfig) != 0 {
-		if _, err := os.Stat(applier.Cluster.KubeConfig); err != nil {
+	if len(applier.cluster.KubeConfig) != 0 {
+		if _, err := os.Stat(applier.cluster.KubeConfig); err != nil {
 			return fmt.Errorf("invalid path of kubeConfig: %v", err)
 		}
 	}
 
-	if len(applier.Cluster.CustomCluster) != 0 {
-		if _, err := os.Stat(applier.Cluster.CustomCluster); err != nil {
+	if len(applier.cluster.CustomCluster) != 0 {
+		if _, err := os.Stat(applier.cluster.CustomCluster); err != nil {
 			return fmt.Errorf("invalid path of customConfig: %v", err)
 		}
 	}
 
-	if len(applier.SchedulerConfig) != 0 {
-		if _, err := os.Stat(applier.SchedulerConfig); err != nil {
+	if len(applier.schedulerConfig) != 0 {
+		if _, err := os.Stat(applier.schedulerConfig); err != nil {
 			return fmt.Errorf("invalid path of scheduler config: %v", err)
 		}
 	}
 
-	if len(applier.NewNode) != 0 {
-		if _, err := os.Stat(applier.NewNode); err != nil {
+	if len(applier.newNode) != 0 {
+		if _, err := os.Stat(applier.newNode); err != nil {
 			return fmt.Errorf("invalid path of newNode: %v", err)
 		}
 	}
 
-	for _, app := range applier.AppList {
+	for _, app := range applier.appList {
 		if _, err := os.Stat(app.Path); err != nil {
 			return fmt.Errorf("invalid path of %s app: %v", app.Name, err)
 		}

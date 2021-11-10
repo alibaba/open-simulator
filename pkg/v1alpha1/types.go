@@ -1,4 +1,4 @@
-package simonv1
+package v1alpha1
 
 type AppInfo struct {
 	Name  string `json:"name"`

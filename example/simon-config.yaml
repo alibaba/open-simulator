@@ -1,4 +1,4 @@
-apiVersion: v1
+apiVersion: simon/v1alpha1
 kind: Config
 metadata:
   name: simon-config
