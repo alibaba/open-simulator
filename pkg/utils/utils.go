@@ -751,13 +751,13 @@ func Confirm(prompt string) bool {
 	)
 	_, err = fmt.Fprint(os.Stdout, prompt)
 	if err != nil {
-		fmt.Errorf("fmt.Fprint err: %v", err)
+		fmt.Printf("fmt.Fprint err: %v", err)
 		os.Exit(-1)
 	}
 
 	_, err = fmt.Scanf("%s", &inputStr)
 	if err != nil {
-		fmt.Errorf("fmt.Fprint err: %v", err)
+		fmt.Printf("fmt.Fprint err: %v", err)
 		os.Exit(-1)
 	}
 
