@@ -52,8 +52,8 @@ spec:
           done;
         resources:
           requests:
-            cpu: 12
-            memory: 16Gi
+            cpu: 4
+            memory: 8Gi
           limits:
-            cpu: 24
-            memory: 32Gi
+            cpu: 8
+            memory: 16Gi

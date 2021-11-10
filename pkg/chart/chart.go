@@ -16,32 +16,34 @@ import (
 )
 
 // ProcessChart parses chart to /tmp/charts
-func ProcessChart(chartPath string) error {
+func ProcessChart(name string, chartPath string) (string, error) {
 	chartRequested, err := loader.Load(chartPath)
 	if err != nil {
-		return err
+		return "", err
 	}
+	chartRequested.Metadata.Name = name
 
 	if err := checkIfInstallable(chartRequested); err != nil {
-		return err
+		return "", err
 	}
 
 	// TODO
 	var vals map[string]interface{}
 	if err := chartutil.ProcessDependencies(chartRequested, vals); err != nil {
-		return err
+		return "", err
 	}
 
 	valuesToRender, err := ToRenderValues(chartRequested, vals)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	if err = renderResources(chartRequested, valuesToRender, true, simontype.DirectoryForChart); err != nil {
-		return err
+	outputDir := path.Join(simontype.DirectoryForChart, chartRequested.Name())
+	if err = renderResources(chartRequested, valuesToRender, true, outputDir); err != nil {
+		return "", err
 	}
 
-	return nil
+	return outputDir, nil
 }
 
 // checkIfInstallable validates if a chart can be installed
@@ -60,7 +62,7 @@ func ToRenderValues(chrt *chart.Chart, chrtVals map[string]interface{}) (chartut
 	top := map[string]interface{}{
 		"Chart": chrt.Metadata,
 		"Release": map[string]interface{}{
-			"Name":      "test",
+			"Name":      chrt.Name(),
 			"Namespace": "default",
 			"Revision":  1,
 			"Service":   "Helm",

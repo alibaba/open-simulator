@@ -53,8 +53,8 @@ spec:
             done;
         resources: # 必填：resource情况
           requests:
-            cpu: 12
-            memory: 64Gi
+            cpu: 8
+            memory: 16Gi
           limits:
-            cpu: 12
-            memory: 64Gi
+            cpu: 8
+            memory: 24Gi

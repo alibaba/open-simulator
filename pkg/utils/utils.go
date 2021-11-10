@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -502,4 +503,30 @@ func GetTotalNumberOfPodsWithoutNodeName(pods []*corev1.Pod) int64 {
 		}
 	}
 	return podsWithoutNodeNameCount
+}
+
+// Confirm send the prompt and get result
+func Confirm(prompt string) bool {
+	var (
+		inputStr string
+		err      error
+	)
+	_, err = fmt.Fprint(os.Stdout, prompt)
+	if err != nil {
+		fmt.Errorf("fmt.Fprint err: %v", err)
+		os.Exit(-1)
+	}
+
+	_, err = fmt.Scanf("%s", &inputStr)
+	if err != nil {
+		fmt.Errorf("fmt.Fprint err: %v", err)
+		os.Exit(-1)
+	}
+
+	return GetConfirmResult(inputStr)
+}
+
+// GetConfirmResult returns true like y|yes|Y|YES
+func GetConfirmResult(str string) bool {
+	return regexp.MustCompile("^(?i:y(?:es)?)$").MatchString(str)
 }

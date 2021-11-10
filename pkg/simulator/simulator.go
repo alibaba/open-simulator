@@ -645,6 +645,32 @@ func (sim *Simulator) syncResourceList(resourceList simontype.ResourceTypes) err
 	return nil
 }
 
+// GenerateValidDaemonPodsForNewNode generates daemon pods after adding new node according to daemonset from cluster
+func (sim *Simulator) GenerateValidDaemonPodsForNewNode() []*corev1.Pod {
+	var pods []*corev1.Pod
+	var fakeNodes []*corev1.Node
+
+	nodeItems, _ := sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: simontype.LabelNewNode})
+	for _, item := range nodeItems.Items {
+		newItem := item
+		fakeNodes = append(fakeNodes, &newItem)
+	}
+
+	// get all pods from daemonset
+	daemonsets, _ := sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{LabelSelector: simontype.LabelDaemonSetFromCluster})
+	for _, item := range daemonsets.Items {
+		newItem := item
+		pods = append(pods, utils.MakeValidPodsByDaemonset(&newItem, fakeNodes)...)
+	}
+
+	// set label
+	for _, pod := range pods {
+		metav1.SetMetaDataLabel(&pod.ObjectMeta, simontype.LabelNewPod, "")
+	}
+
+	return pods
+}
+
 func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) error {
 	var stop bool = false
 	var stopReason string
