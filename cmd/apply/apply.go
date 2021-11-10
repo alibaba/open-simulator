@@ -2,10 +2,11 @@ package apply
 
 import (
 	"fmt"
+	"os"
+
 	applyPkg "github.com/alibaba/open-simulator/pkg/apply"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"os"
 )
 
 var options = applyPkg.Options{}

@@ -45,15 +45,17 @@ type DefaulterApply struct {
 func (applier *DefaulterApply) Run(opts Options) (err error) {
 	var resourceList []simontype.ResourceInfo
 
-	// Step 0: check args of Options
+	// Step 0: parse configuration file and args of options
 	if err = applier.ParseArgsAndConfigFile(opts); err != nil {
 		return fmt.Errorf("Parse Error: %v ", err)
 	}
 
+	// Step 1: verify the validity of the configuration
 	if err = applier.Validate(); err != nil {
 		return fmt.Errorf("Invalid information: %v ", err)
 	}
 
+	// Step2: convert a series of the application paths into the kubernetes objects
 	for _, app := range applier.AppList {
 		newPath := app.Path
 
@@ -65,13 +67,13 @@ func (applier *DefaulterApply) Run(opts Options) (err error) {
 			newPath = outputDir
 		}
 
-		// Step 1: convert recursively the application directory into a series of file paths
+		// convert recursively the application directory into a series of file paths
 		appFilePaths, err := utils.ParseFilePath(newPath)
 		if err != nil {
 			return fmt.Errorf("Failed to parse the application config path: %v ", err)
 		}
 
-		// Step 2: convert yml or yaml file of the application files to kubernetes appResources
+		// convert yml or yaml file of the application files to kubernetes appResources
 		appResource, err := utils.GetObjectsFromFiles(appFilePaths)
 		if err != nil {
 			return fmt.Errorf("%v", err)
@@ -83,7 +85,6 @@ func (applier *DefaulterApply) Run(opts Options) (err error) {
 		}
 		resourceList = append(resourceList, newResource)
 	}
-
 	newNode, exist := utils.DecodeYamlFile(applier.NewNode).(*corev1.Node)
 	if !exist {
 		return fmt.Errorf("The NewNode file(%s) is not a Node yaml ", applier.NewNode)
