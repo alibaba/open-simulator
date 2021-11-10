@@ -3,7 +3,9 @@ module github.com/alibaba/open-simulator
 go 1.15
 
 require (
+	github.com/alibaba/open-local v0.2.4-0.20211108031201-b31116301645
 	github.com/olekukonko/tablewriter v0.0.5
+	github.com/pquerna/ffjson v0.0.0-20190930134022-aa0246cd15f7
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/pflag v1.0.5
@@ -13,17 +15,18 @@ require (
 	helm.sh/helm/v3 v3.6.2
 	k8s.io/api v0.21.0
 	k8s.io/apimachinery v0.21.0
-	k8s.io/client-go v11.0.1-0.20190409021438-1a26190bd76a+incompatible
+	k8s.io/client-go v0.21.0
 	k8s.io/component-base v0.20.5
 	k8s.io/klog/v2 v2.9.0 // indirect
 	k8s.io/kube-scheduler v0.20.5
 	k8s.io/kubectl v0.21.0
 	k8s.io/kubernetes v1.20.5
-	k8s.io/mount-utils v0.20.5 // indirect
 	sigs.k8s.io/yaml v1.2.0
 )
 
 replace (
+	github.com/googleapis/gnostic => github.com/googleapis/gnostic v0.4.1
+	google.golang.org/grpc => google.golang.org/grpc v1.26.0
 	k8s.io/api => k8s.io/api v0.20.5
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.20.5
 	k8s.io/apimachinery => k8s.io/apimachinery v0.20.5

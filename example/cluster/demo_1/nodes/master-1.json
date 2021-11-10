@@ -1,0 +1,23 @@
+{
+    "vgs": [
+        {
+            "name": "yoda-pool0",
+            "capacity": "107374182400",
+            "requested": "0"
+        },
+        {
+            "name": "yoda-pool1",
+            "capacity": "107374182400",
+            "requested": "0"
+        }
+    ],
+    "devices": [
+        {
+            "name": "/dev/vdd",
+            "device": "/dev/vdd",
+            "capacity": "107374182400",
+            "mediaType": "hdd",
+            "isAllocated": "false"
+        }
+    ]
+}

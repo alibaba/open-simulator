@@ -7,7 +7,7 @@ spec:
     customConfig: ./example/cluster/demo_1
   appList:
     - name: yoda
-      path: ./example/charts/yoda
+      path: ./example/application/charts/yoda
       chart: true
     - name: simple
       path: ./example/application/simple

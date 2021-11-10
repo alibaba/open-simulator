@@ -85,7 +85,9 @@ func (applier *DefaulterApply) Run(opts Options) (err error) {
 		}
 		resourceList = append(resourceList, newResource)
 	}
-	newNode, exist := utils.DecodeYamlFile(applier.NewNode).(*corev1.Node)
+
+	objects := utils.DecodeYamlFile(applier.NewNode)
+	newNode, exist := objects[0].(*corev1.Node)
 	if !exist {
 		return fmt.Errorf("The NewNode file(%s) is not a Node yaml ", applier.NewNode)
 	}

@@ -9,15 +9,19 @@ import (
 	"reflect"
 	"strings"
 
+	simonplugin "github.com/alibaba/open-simulator/pkg/simulator/plugin"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/alibaba/open-simulator/pkg/utils"
 	"github.com/olekukonko/tablewriter"
+	"github.com/pquerna/ffjson/ffjson"
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/client-go/informers"
+	kubeinformers "k8s.io/client-go/informers"
 	externalclientset "k8s.io/client-go/kubernetes"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/cache"
@@ -32,7 +36,7 @@ import (
 type Simulator struct {
 	// kube client
 	externalclient  externalclientset.Interface
-	fakeClient      externalclientset.Interface
+	fakeclient      externalclientset.Interface
 	informerFactory informers.SharedInformerFactory
 
 	// scheduler
@@ -68,7 +72,7 @@ func New(externalClient externalclientset.Interface, kubeSchedulerConfig *schedc
 	// Step 2: Create the simulator
 	sim := &Simulator{
 		externalclient:  externalClient,
-		fakeClient:      fakeClient,
+		fakeclient:      fakeClient,
 		simulatorStop:   make(chan struct{}),
 		informerFactory: sharedInformerFactory,
 		ctx:             ctx,
@@ -106,13 +110,21 @@ func New(externalClient externalclientset.Interface, kubeSchedulerConfig *schedc
 
 	// Step 4: create scheduler for fake cluster
 	kubeSchedulerConfig.Client = fakeClient
+	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(sim.fakeclient, 0)
+	storagev1Informers := kubeInformerFactory.Storage().V1()
+	scInformer := storagev1Informers.StorageClasses().Informer()
+	kubeInformerFactory.Start(ctx.Done())
+	cache.WaitForCacheSync(ctx.Done(), scInformer.HasSynced)
 	bindRegistry := frameworkruntime.Registry{
 		simontype.SimonPluginName: func(configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
-			return sim.newPlugin(simontype.DefaultSchedulerName, configuration, f)
+			return simonplugin.NewSimonPlugin(simontype.DefaultSchedulerName, sim.fakeclient, configuration, f)
+		},
+		simontype.OpenLocalPluginName: func(configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
+			return simonplugin.NewLocalPlugin(simontype.DefaultSchedulerName, fakeClient, storagev1Informers, configuration, f)
 		},
 	}
 	sim.scheduler, err = scheduler.New(
-		sim.fakeClient,
+		sim.fakeclient,
 		sim.informerFactory,
 		utils.GetRecorderFactory(kubeSchedulerConfig),
 		sim.ctx.Done(),
@@ -150,7 +162,7 @@ func (sim *Simulator) SchedulePods(pods []*corev1.Pod) error {
 	// create the simulated pods
 	sim.status.numOfRemainingPods = utils.GetTotalNumberOfPodsWithoutNodeName(pods)
 	for _, pod := range pods {
-		_, err := sim.fakeClient.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{})
+		_, err := sim.fakeclient.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{})
 		if err != nil {
 			return fmt.Errorf("create pod %s/%s error: %s", pod.Namespace, pod.Name, err.Error())
 		}
@@ -186,11 +198,12 @@ func (sim *Simulator) Report() {
 		"CPU Limits",
 		"Memory Requests",
 		"Memory Limits",
+		"Volume Requests",
 		"New Pod",
 	})
 
-	nodes, _ := sim.fakeClient.CoreV1().Nodes().List(sim.ctx, metav1.ListOptions{})
-	allPods, _ := sim.fakeClient.CoreV1().Pods(corev1.NamespaceAll).List(sim.ctx, metav1.ListOptions{
+	nodes, _ := sim.fakeclient.CoreV1().Nodes().List(sim.ctx, metav1.ListOptions{})
+	allPods, _ := sim.fakeclient.CoreV1().Pods(corev1.NamespaceAll).List(sim.ctx, metav1.ListOptions{
 		// FieldSelector not work
 		// issue: https://github.com/kubernetes/client-go/issues/326#issuecomment-412993326
 		// FieldSelector: "spec.nodeName=%s" + node.Name,
@@ -211,9 +224,20 @@ func (sim *Simulator) Report() {
 			if _, exist := pod.Labels[simontype.LabelNewPod]; exist {
 				newPod = "√"
 			}
-			//if !utils.IsNew(pod.Annotations) {
-			//	fake = ""
-			//}
+
+			// Storage
+			podVolumeStr := ""
+			if volumes := utils.GetPodStorage(&pod); volumes != nil {
+				for i, volume := range volumes.Volumes {
+					volumeQuantity := resource.NewQuantity(volume.Size, resource.BinarySI)
+					volumeStr := fmt.Sprintf("<%d> %s: %s", i, volume.Kind, volumeQuantity.String())
+					podVolumeStr = podVolumeStr + volumeStr
+					if i+1 != len(volumes.Volumes) {
+						podVolumeStr = fmt.Sprintf("%s\n", podVolumeStr)
+					}
+				}
+			}
+
 			data := []string{
 				node.Name,
 				fmt.Sprintf("%s/%s", pod.Namespace, pod.Name),
@@ -221,6 +245,7 @@ func (sim *Simulator) Report() {
 				fmt.Sprintf("%s(%d%%)", cpuLimit.String(), int64(fractionCpuLimit)),
 				fmt.Sprintf("%s(%d%%)", memoryReq.String(), int64(fractionMemoryReq)),
 				fmt.Sprintf("%s(%d%%)", memoryLimit.String(), int64(fractionMemoryLimit)),
+				podVolumeStr,
 				newPod,
 			}
 			podTable.Append(data)
@@ -261,6 +286,7 @@ func (sim *Simulator) Report() {
 		if _, exist := node.Labels[simontype.LabelNewNode]; exist {
 			newNode = "√"
 		}
+
 		data := []string{
 			node.Name,
 			allocatable.Cpu().String(),
@@ -277,10 +303,62 @@ func (sim *Simulator) Report() {
 	nodeTable.SetRowLine(true)
 	nodeTable.SetAlignment(tablewriter.ALIGN_LEFT)
 	nodeTable.Render() // Send output
+	fmt.Println()
+
+	// Step 3: report node storage info
+	fmt.Println("Node Storage Info")
+	fmt.Println("Storage is Open-Local")
+	nodeStorageTable := tablewriter.NewWriter(os.Stdout)
+	nodeStorageTable.SetHeader([]string{
+		"Node",
+		"Kind",
+		"ALLOCATABLE",
+		"REQUESTS",
+	})
+	for _, node := range nodes.Items {
+		if nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]; exist {
+			var nodeStorage utils.FakeNodeStorage
+			if err := ffjson.Unmarshal([]byte(nodeStorageStr), &nodeStorage); err != nil {
+				fmt.Printf("err when unmarshal json data, node is %s\n", node.Name)
+				return
+			}
+			var storageData []string
+			for _, vg := range nodeStorage.VGs {
+				capacity := resource.NewQuantity(vg.Capacity, resource.BinarySI)
+				request := resource.NewQuantity(vg.Requested, resource.BinarySI)
+				storageData = []string{
+					node.Name,
+					"VG",
+					capacity.String(),
+					fmt.Sprintf("%s(%d%%)", request.String(), int64(float64(vg.Requested)/float64(vg.Capacity)*100)),
+				}
+				nodeStorageTable.Append(storageData)
+			}
+
+			for _, device := range nodeStorage.Devices {
+				capacity := resource.NewQuantity(device.Capacity, resource.BinarySI)
+				used := "not used"
+				if device.IsAllocated {
+					used = "used"
+				}
+				storageData = []string{
+					node.Name,
+					"Device",
+					capacity.String(),
+					used,
+				}
+				nodeStorageTable.Append(storageData)
+			}
+		}
+	}
+	nodeStorageTable.SetAutoMergeCellsByColumnIndex([]int{0})
+	nodeStorageTable.SetRowLine(true)
+	nodeStorageTable.SetAlignment(tablewriter.ALIGN_LEFT)
+	nodeStorageTable.Render() // Send output
 }
 
 func (sim *Simulator) GetFakeClient() externalclientset.Interface {
-	return sim.fakeClient
+	return sim.fakeclient
 }
 
 // CreateConfigMapAndSaveItToFile will create a file to save results for later handling
@@ -288,7 +366,7 @@ func (sim *Simulator) CreateConfigMapAndSaveItToFile(fileName string) error {
 	var resultDeployment map[string][]string = make(map[string][]string)
 	var resultStatefulment map[string][]string = make(map[string][]string)
 
-	allPods, _ := sim.fakeClient.CoreV1().Pods(corev1.NamespaceAll).List(sim.ctx, metav1.ListOptions{
+	allPods, _ := sim.fakeclient.CoreV1().Pods(corev1.NamespaceAll).List(sim.ctx, metav1.ListOptions{
 		// FieldSelector not work
 		// issue: https://github.com/kubernetes/client-go/issues/326#issuecomment-412993326
 		// FieldSelector: "spec.nodeName=%s" + node.Name,
@@ -353,34 +431,9 @@ func (sim *Simulator) CreateConfigMapAndSaveItToFile(fileName string) error {
 	return nil
 }
 
-// BindPodToNode bind pod to a node and trigger pod update event
-func (sim *Simulator) BindPodToNode(ctx context.Context, state *framework.CycleState, p *corev1.Pod, nodeName string, schedulerName string) *framework.Status {
-	// fmt.Printf("bind pod %s/%s to node %s\n", p.Namespace, p.Name, nodeName)
-	// Step 1: update pod info
-	pod, err := sim.fakeClient.CoreV1().Pods(p.Namespace).Get(context.TODO(), p.Name, metav1.GetOptions{})
-	if err != nil {
-		log.Errorf("fake get error %v", err)
-		return framework.NewStatus(framework.Error, fmt.Sprintf("Unable to bind: %v", err))
-	}
-	updatedPod := pod.DeepCopy()
-	updatedPod.Spec.NodeName = nodeName
-	updatedPod.Status.Phase = corev1.PodRunning
-
-	// Step 2: update pod
-	// here assuming the pod is already in the resource storage
-	// so the update is needed to emit update event in case a handler is registered
-	_, err = sim.fakeClient.CoreV1().Pods(pod.Namespace).Update(context.TODO(), updatedPod, metav1.UpdateOptions{})
-	if err != nil {
-		log.Errorf("fake update error %v", err)
-		return framework.NewStatus(framework.Error, fmt.Sprintf("Unable to add new pod: %v", err))
-	}
-
-	return nil
-}
-
 // GetNodes
 func (sim *Simulator) GetNodes() []corev1.Node {
-	nodes, err := sim.fakeClient.CoreV1().Nodes().List(sim.ctx, metav1.ListOptions{})
+	nodes, err := sim.fakeclient.CoreV1().Nodes().List(sim.ctx, metav1.ListOptions{})
 	if err != nil {
 		fmt.Printf("GetNodes failed: %s\n", err.Error())
 		os.Exit(1)
@@ -395,7 +448,7 @@ func (sim *Simulator) Close() {
 
 func (sim *Simulator) AddPods(pods []*corev1.Pod) error {
 	for _, pod := range pods {
-		_, err := sim.fakeClient.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{})
+		_, err := sim.fakeclient.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{})
 		if err != nil {
 			log.Errorf("create pod error: %s", err.Error())
 		}
@@ -405,7 +458,7 @@ func (sim *Simulator) AddPods(pods []*corev1.Pod) error {
 
 func (sim *Simulator) AddNodes(nodes []*corev1.Node) error {
 	for _, node := range nodes {
-		_, err := sim.fakeClient.CoreV1().Nodes().Create(context.Background(), node, metav1.CreateOptions{})
+		_, err := sim.fakeclient.CoreV1().Nodes().Create(context.Background(), node, metav1.CreateOptions{})
 		if err != nil {
 			return err
 		}
@@ -425,7 +478,7 @@ func (sim *Simulator) AddNewNode(node *corev1.Node, nodeCount int) error {
 		hostname := fmt.Sprintf("%s-%02d", simontype.NewNodeNamePrefix, i)
 		node := utils.MakeValidNodeByNode(node, hostname)
 		metav1.SetMetaDataLabel(&node.ObjectMeta, simontype.LabelNewNode, "")
-		_, err := sim.fakeClient.CoreV1().Nodes().Create(context.Background(), node, metav1.CreateOptions{})
+		_, err := sim.fakeclient.CoreV1().Nodes().Create(context.Background(), node, metav1.CreateOptions{})
 		if err != nil {
 			return err
 		}
@@ -569,70 +622,70 @@ func (sim *Simulator) genResourceListFromClusterConfig(path string) (simontype.R
 func (sim *Simulator) syncResourceList(resourceList simontype.ResourceTypes) error {
 	//sync node
 	for _, item := range resourceList.Nodes {
-		if _, err := sim.fakeClient.CoreV1().Nodes().Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
+		if _, err := sim.fakeclient.CoreV1().Nodes().Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy node: %v", err)
 		}
 	}
 
 	//sync pdb
 	for _, item := range resourceList.PodDisruptionBudgets {
-		if _, err := sim.fakeClient.PolicyV1beta1().PodDisruptionBudgets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
+		if _, err := sim.fakeclient.PolicyV1beta1().PodDisruptionBudgets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy PDB: %v", err)
 		}
 	}
 
 	//sync svc
 	for _, item := range resourceList.Services {
-		if _, err := sim.fakeClient.CoreV1().Services(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
+		if _, err := sim.fakeclient.CoreV1().Services(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy service: %v", err)
 		}
 	}
 
 	//sync storage class
 	for _, item := range resourceList.StorageClasss {
-		if _, err := sim.fakeClient.StorageV1().StorageClasses().Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
+		if _, err := sim.fakeclient.StorageV1().StorageClasses().Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy storage class: %v", err)
 		}
 	}
 
 	//sync pvc
 	for _, item := range resourceList.PersistentVolumeClaims {
-		if _, err := sim.fakeClient.CoreV1().PersistentVolumeClaims(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
+		if _, err := sim.fakeclient.CoreV1().PersistentVolumeClaims(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy pvc: %v", err)
 		}
 	}
 
 	//sync rc
 	for _, item := range resourceList.ReplicationControllers {
-		if _, err := sim.fakeClient.CoreV1().ReplicationControllers(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
+		if _, err := sim.fakeclient.CoreV1().ReplicationControllers(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy RC: %v", err)
 		}
 	}
 
 	//sync deployment
 	for _, item := range resourceList.Deployments {
-		if _, err := sim.fakeClient.AppsV1().Deployments(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
+		if _, err := sim.fakeclient.AppsV1().Deployments(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy deployment: %v", err)
 		}
 	}
 
 	//sync rs
 	for _, item := range resourceList.ReplicaSets {
-		if _, err := sim.fakeClient.AppsV1().ReplicaSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
+		if _, err := sim.fakeclient.AppsV1().ReplicaSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy replica set: %v", err)
 		}
 	}
 
 	//sync statefulset
 	for _, item := range resourceList.StatefulSets {
-		if _, err := sim.fakeClient.AppsV1().StatefulSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
+		if _, err := sim.fakeclient.AppsV1().StatefulSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy stateful set: %v", err)
 		}
 	}
 
 	//sync daemonset
 	for _, item := range resourceList.DaemonSets {
-		if _, err := sim.fakeClient.AppsV1().DaemonSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
+		if _, err := sim.fakeclient.AppsV1().DaemonSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to copy daemon set: %v", err)
 		}
 	}
@@ -650,14 +703,14 @@ func (sim *Simulator) GenerateValidDaemonPodsForNewNode() []*corev1.Pod {
 	var pods []*corev1.Pod
 	var fakeNodes []*corev1.Node
 
-	nodeItems, _ := sim.fakeClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: simontype.LabelNewNode})
+	nodeItems, _ := sim.fakeclient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: simontype.LabelNewNode})
 	for _, item := range nodeItems.Items {
 		newItem := item
 		fakeNodes = append(fakeNodes, &newItem)
 	}
 
 	// get all pods from daemonset
-	daemonsets, _ := sim.fakeClient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{LabelSelector: simontype.LabelDaemonSetFromCluster})
+	daemonsets, _ := sim.fakeclient.AppsV1().DaemonSets(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{LabelSelector: simontype.LabelDaemonSetFromCluster})
 	for _, item := range daemonsets.Items {
 		newItem := item
 		pods = append(pods, utils.MakeValidPodsByDaemonset(&newItem, fakeNodes)...)
@@ -700,11 +753,4 @@ func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) error {
 	sim.simulatorStop <- struct{}{}
 
 	return nil
-}
-
-func (sim *Simulator) newPlugin(schedulerName string, configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
-	return &SimonPlugin{
-		schedulerName: schedulerName,
-		sim:           sim,
-	}, nil
 }

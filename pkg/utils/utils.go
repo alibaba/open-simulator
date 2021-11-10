@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -9,12 +11,20 @@ import (
 	"sort"
 	"strings"
 
+	localcache "github.com/alibaba/open-local/pkg/scheduler/algorithm/cache"
+	localutils "github.com/alibaba/open-local/pkg/utils"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
+	"github.com/pquerna/ffjson/ffjson"
+	log "github.com/sirupsen/logrus"
+	"helm.sh/helm/v3/pkg/releaseutil"
 	apps "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	batchv1beta1 "k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/api/policy/v1beta1"
 	v1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
@@ -68,42 +78,52 @@ func GetObjectsFromFiles(filePaths []string) (simontype.ResourceTypes, error) {
 	var resources simontype.ResourceTypes
 
 	for _, f := range filePaths {
-		obj := DecodeYamlFile(f)
-		switch o := obj.(type) {
-		case nil:
-			continue
-		case *corev1.Node:
-			resources.Nodes = append(resources.Nodes, o)
-		case *corev1.Pod:
-			resources.Pods = append(resources.Pods, o)
-		case *apps.DaemonSet:
-			resources.DaemonSets = append(resources.DaemonSets, o)
-		case *apps.StatefulSet:
-			resources.StatefulSets = append(resources.StatefulSets, o)
-		case *apps.Deployment:
-			resources.Deployments = append(resources.Deployments, o)
-		case *corev1.Service:
-			resources.Services = append(resources.Services, o)
-		case *corev1.PersistentVolumeClaim:
-			resources.PersistentVolumeClaims = append(resources.PersistentVolumeClaims, o)
-		case *corev1.ReplicationController:
-			resources.ReplicationControllers = append(resources.ReplicationControllers, o)
-		case *apps.ReplicaSet:
-			resources.ReplicaSets = append(resources.ReplicaSets, o)
-		case *v1.StorageClass:
-			resources.StorageClasss = append(resources.StorageClasss, o)
-		case *v1beta1.PodDisruptionBudget:
-			resources.PodDisruptionBudgets = append(resources.PodDisruptionBudgets, o)
-		default:
-			fmt.Printf("unknown type: %T\n", o)
-			continue
+		objects := DecodeYamlFile(f)
+		for _, obj := range objects {
+			switch o := obj.(type) {
+			case nil:
+				continue
+			case *corev1.Node:
+				resources.Nodes = append(resources.Nodes, o)
+				storageFile := fmt.Sprintf("%s.json", strings.TrimSuffix(f, filepath.Ext(f)))
+				if err := AddLocalStorageInfoInNode(o, storageFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return resources, err
+				}
+			case *corev1.Pod:
+				resources.Pods = append(resources.Pods, o)
+			case *apps.DaemonSet:
+				resources.DaemonSets = append(resources.DaemonSets, o)
+			case *apps.StatefulSet:
+				resources.StatefulSets = append(resources.StatefulSets, o)
+			case *apps.Deployment:
+				resources.Deployments = append(resources.Deployments, o)
+			case *corev1.Service:
+				resources.Services = append(resources.Services, o)
+			case *corev1.PersistentVolumeClaim:
+				resources.PersistentVolumeClaims = append(resources.PersistentVolumeClaims, o)
+			case *corev1.ReplicationController:
+				resources.ReplicationControllers = append(resources.ReplicationControllers, o)
+			case *apps.ReplicaSet:
+				resources.ReplicaSets = append(resources.ReplicaSets, o)
+			case *batchv1.Job:
+				resources.Jobs = append(resources.Jobs, o)
+			case *batchv1beta1.CronJob:
+				resources.CronJobs = append(resources.CronJobs, o)
+			case *v1.StorageClass:
+				resources.StorageClasss = append(resources.StorageClasss, o)
+			case *v1beta1.PodDisruptionBudget:
+				resources.PodDisruptionBudgets = append(resources.PodDisruptionBudgets, o)
+			default:
+				fmt.Printf("unknown type: %T\n", o)
+				continue
+			}
 		}
 	}
 	return resources, nil
 }
 
 // DecodeYamlFile captures the yml or yaml file, and decodes it
-func DecodeYamlFile(file string) runtime.Object {
+func DecodeYamlFile(file string) []runtime.Object {
 	fileExtension := filepath.Ext(file)
 	if fileExtension != ".yaml" && fileExtension != ".yml" {
 		return nil
@@ -114,15 +134,43 @@ func DecodeYamlFile(file string) runtime.Object {
 		os.Exit(1)
 	}
 
-	decode := scheme.Codecs.UniversalDeserializer().Decode
-	obj, _, err := decode(yamlFile, nil, nil)
+	objects := make([]runtime.Object, 0)
+	yamls := releaseutil.SplitManifests(string(yamlFile))
+	for _, yaml := range yamls {
+		decode := scheme.Codecs.UniversalDeserializer().Decode
+		obj, _, err := decode([]byte(yaml), nil, nil)
+		if err != nil {
+			fmt.Printf("Error while decoding YAML object. Err was: %s", err)
+			os.Exit(1)
+		}
 
-	if err != nil {
-		fmt.Printf("Error while decoding YAML object. Err was: %s", err)
-		os.Exit(1)
+		objects = append(objects, obj)
 	}
 
-	return obj
+	return objects
+}
+
+func ReadJsonFile(file string) (string, error) {
+	if _, err := os.Stat(file); err != nil {
+		return "", nil
+	}
+
+	plan, _ := ioutil.ReadFile(file)
+	if ok := json.Valid(plan); !ok {
+		return "", fmt.Errorf("valid json file %s failed", file)
+	}
+	return string(plan), nil
+}
+
+func AddLocalStorageInfoInNode(node *corev1.Node, jsonfile string) error {
+	info, err := ReadJsonFile(jsonfile)
+	if err != nil {
+		return err
+	}
+	if info != "" {
+		metav1.SetMetaDataAnnotation(&node.ObjectMeta, simontype.AnnoNodeLocalStorage, info)
+	}
+	return nil
 }
 
 func GetMasterFromKubeConfig(filename string) (string, error) {
@@ -186,6 +234,16 @@ func GetValidPodExcludeDaemonSet(resources *simontype.ResourceTypes) []*corev1.P
 		pods = append(pods, MakeValidPodsByStatefulSet(sts)...)
 	}
 
+	// get all pods from job
+	for _, job := range resources.Jobs {
+		pods = append(pods, MakeValidPodByJob(job)...)
+	}
+
+	// get all pods from cronjob
+	for _, cronjob := range resources.CronJobs {
+		pods = append(pods, MakeValidPodByCronJob(cronjob)...)
+	}
+
 	return pods
 }
 
@@ -206,18 +264,198 @@ func MakeValidPodsByDeployment(deploy *apps.Deployment) []*corev1.Pod {
 	return pods
 }
 
+func MakeValidPodByJob(job *batchv1.Job) []*corev1.Pod {
+	var pods []*corev1.Pod
+	if job.Spec.Completions == nil {
+		var completions int32 = 1
+		job.Spec.Completions = &completions
+	}
+
+	for ordinal := 0; ordinal < int(*job.Spec.Completions); ordinal++ {
+		pod, _ := controller.GetPodFromTemplate(&job.Spec.Template, job, nil)
+		pod.ObjectMeta.Name = fmt.Sprintf("job-%s-%d", job.GetName(), ordinal)
+		pod.ObjectMeta.Namespace = job.GetNamespace()
+		pod = MakePodValid(pod)
+		pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindDeployment, pod.Name, pod.Namespace)
+		pods = append(pods, pod)
+	}
+
+	return pods
+}
+
+func MakeValidPodByCronJob(cronjob *batchv1beta1.CronJob) []*corev1.Pod {
+	job := new(batchv1.Job)
+	job.ObjectMeta.Name = cronjob.Name
+	job.ObjectMeta.Namespace = cronjob.Namespace
+	job.Spec = cronjob.Spec.JobTemplate.Spec
+
+	pods := MakeValidPodByJob(job)
+	return pods
+}
+
+type FakeNodeStorage struct {
+	VGs     []localcache.SharedResource    `json:"vgs"`
+	Devices []localcache.ExclusiveResource `json:"devices"`
+}
+
+type Volume struct {
+	Size int64 `json:"size,string"`
+	// Kind 可以是 LVM 或 HDD 或 SSD
+	// HDD 和 SSD 均指代独占盘
+	Kind string `json:"kind"`
+}
+
+type VolumeRequest struct {
+	Volumes []Volume `json:"volumes"`
+}
+
+func GetNodeStorage(node *corev1.Node) *FakeNodeStorage {
+	nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]
+	if !exist {
+		return nil
+	}
+
+	nodeStorage := new(FakeNodeStorage)
+	if err := ffjson.Unmarshal([]byte(nodeStorageStr), nodeStorage); err != nil {
+		log.Errorf("unmarshal info of node %s failed: %s", node.Name, err.Error())
+		return nil
+	}
+
+	return nodeStorage
+}
+
+func GetNodeCache(node *corev1.Node) *localcache.NodeCache {
+	nodeStorage := GetNodeStorage(node)
+	if nodeStorage == nil {
+		return nil
+	}
+
+	nc := localcache.NewNodeCache(node.Name)
+	var vgRes map[localcache.ResourceName]localcache.SharedResource = make(map[localcache.ResourceName]localcache.SharedResource)
+	for _, vg := range nodeStorage.VGs {
+		vgRes[localcache.ResourceName(vg.Name)] = vg
+	}
+	nc.VGs = vgRes
+
+	var deviceRes map[localcache.ResourceName]localcache.ExclusiveResource = make(map[localcache.ResourceName]localcache.ExclusiveResource)
+	for _, device := range nodeStorage.Devices {
+		deviceRes[localcache.ResourceName(device.Device)] = device
+	}
+	nc.Devices = deviceRes
+
+	return nc
+}
+
+func GetPodStorage(pod *corev1.Pod) *VolumeRequest {
+	podStorageStr, exist := pod.Annotations[simontype.AnnoPodLocalStorage]
+	if !exist {
+		return nil
+	}
+
+	podStorage := new(VolumeRequest)
+	if err := ffjson.Unmarshal([]byte(podStorageStr), &podStorage); err != nil {
+		log.Errorf("unmarshal volume info of pod %s/%s failed: %s", pod.Namespace, pod.Name, err.Error())
+		return nil
+	}
+
+	return podStorage
+}
+
+func GetPodLocalPVCs(pod *corev1.Pod) ([]*corev1.PersistentVolumeClaim, []*corev1.PersistentVolumeClaim) {
+	podStorage := GetPodStorage(pod)
+	if podStorage == nil {
+		return nil, nil
+	}
+
+	lvmPVCs := make([]*corev1.PersistentVolumeClaim, 0)
+	devicePVCs := make([]*corev1.PersistentVolumeClaim, 0)
+	for i, volume := range podStorage.Volumes {
+		scName := ""
+		if volume.Kind == "LVM" {
+			scName = OpenLocalSCNameLVM
+		} else if volume.Kind == "HDD" {
+			scName = OpenLocalSCNameDeviceHDD
+		} else if volume.Kind == "SSD" {
+			scName = OpenLocalSCNameDeviceSSD
+		} else {
+			continue
+		}
+		volumeQuantity := resource.NewQuantity(volume.Size, resource.BinarySI)
+		pvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("pvc-%s-%d", pod.Name, i),
+				Namespace: pod.Namespace,
+			},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				StorageClassName: &scName,
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName(corev1.ResourceStorage): *volumeQuantity,
+					},
+				},
+			},
+			Status: corev1.PersistentVolumeClaimStatus{
+				Phase: corev1.ClaimPending,
+			},
+		}
+		if scName == OpenLocalSCNameLVM {
+			lvmPVCs = append(lvmPVCs, pvc)
+		} else {
+			devicePVCs = append(devicePVCs, pvc)
+		}
+	}
+
+	return lvmPVCs, devicePVCs
+}
+
 func MakeValidPodsByStatefulSet(set *apps.StatefulSet) []*corev1.Pod {
 	var pods []*corev1.Pod
 	if set.Spec.Replicas == nil {
 		var replica int32 = 1
 		set.Spec.Replicas = &replica
 	}
+
+	// handle Open-Local Volumes
+	var volumes VolumeRequest
+	volumes.Volumes = make([]Volume, 0)
+	for _, pvc := range set.Spec.VolumeClaimTemplates {
+		if *pvc.Spec.StorageClassName == OpenLocalSCNameLVM || *pvc.Spec.StorageClassName == YodaSCNameLVM {
+			volume := Volume{
+				Size: localutils.GetPVCRequested(&pvc),
+				Kind: "LVM",
+			}
+			volumes.Volumes = append(volumes.Volumes, volume)
+		} else if *pvc.Spec.StorageClassName == OpenLocalSCNameDeviceSSD || *pvc.Spec.StorageClassName == OpenLocalSCNameMountPointSSD || *pvc.Spec.StorageClassName == YodaSCNameMountPointSSD || *pvc.Spec.StorageClassName == YodaSCNameDeviceSSD {
+			volume := Volume{
+				Size: localutils.GetPVCRequested(&pvc),
+				Kind: "SSD",
+			}
+			volumes.Volumes = append(volumes.Volumes, volume)
+		} else if *pvc.Spec.StorageClassName == OpenLocalSCNameDeviceHDD || *pvc.Spec.StorageClassName == OpenLocalSCNameMountPointHDD || *pvc.Spec.StorageClassName == YodaSCNameMountPointHDD || *pvc.Spec.StorageClassName == YodaSCNameDeviceHDD {
+			volume := Volume{
+				Size: localutils.GetPVCRequested(&pvc),
+				Kind: "HDD",
+			}
+			volumes.Volumes = append(volumes.Volumes, volume)
+		}
+	}
+
 	for ordinal := 0; ordinal < int(*set.Spec.Replicas); ordinal++ {
 		pod, _ := controller.GetPodFromTemplate(&set.Spec.Template, set, nil)
 		pod.ObjectMeta.Name = fmt.Sprintf("statefulset-%s-%d", set.Name, ordinal)
 		pod.ObjectMeta.Namespace = set.Namespace
 		pod = MakePodValid(pod)
 		pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindStatefulSet, set.Name, pod.Namespace)
+
+		// Storage
+		b, err := json.Marshal(volumes)
+		if err != nil {
+			fmt.Println(err)
+			return nil
+		}
+		metav1.SetMetaDataAnnotation(&pod.ObjectMeta, simontype.AnnoPodLocalStorage, string(b))
+
 		pods = append(pods, pod)
 	}
 	return pods
