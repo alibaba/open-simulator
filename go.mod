@@ -3,6 +3,7 @@ module github.com/alibaba/open-simulator
 go 1.15
 
 require (
+	github.com/AlecAivazis/survey/v2 v2.3.2
 	github.com/alibaba/open-local v0.2.4-0.20211108031201-b31116301645
 	github.com/olekukonko/tablewriter v0.0.5
 	github.com/pquerna/ffjson v0.0.0-20190930134022-aa0246cd15f7
