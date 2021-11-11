@@ -15,6 +15,7 @@ import (
 	"github.com/olekukonko/tablewriter"
 	"github.com/pquerna/ffjson/ffjson"
 	log "github.com/sirupsen/logrus"
+	apps "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -158,13 +159,13 @@ func (sim *Simulator) RunScheduler() {
 }
 
 // Run starts to schedule pods
-func (sim *Simulator) SchedulePods(pods []*corev1.Pod) error {
+func (sim *Simulator) SchedulePods(pods []*corev1.Pod) (*corev1.Pod, error) {
 	// create the simulated pods
 	sim.status.numOfRemainingPods = utils.GetTotalNumberOfPodsWithoutNodeName(pods)
 	for _, pod := range pods {
 		_, err := sim.fakeclient.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{})
 		if err != nil {
-			return fmt.Errorf("create pod %s/%s error: %s", pod.Namespace, pod.Name, err.Error())
+			return pod, fmt.Errorf("%s %s/%s: %s", simontype.CreateError, pod.Namespace, pod.Name, err.Error())
 		}
 
 		// we send value into sim.simulatorStop channel in update() function only,
@@ -174,11 +175,11 @@ func (sim *Simulator) SchedulePods(pods []*corev1.Pod) error {
 		}
 
 		if strings.Contains(sim.status.stopReason, "failed") {
-			return fmt.Errorf("schedule pod failed: %s\n", sim.GetStatus())
+			return pod, fmt.Errorf("%s\n", sim.GetStatus())
 		}
 	}
 
-	return nil
+	return nil, nil
 }
 
 // GetStatus return StopReason
@@ -441,6 +442,12 @@ func (sim *Simulator) GetNodes() []corev1.Node {
 	return nodes.Items
 }
 
+func (sim *Simulator) GetDaemonSets() []apps.DaemonSet {
+
+	daemonsets, _ := sim.fakeclient.AppsV1().DaemonSets(metav1.NamespaceAll).List(sim.ctx, metav1.ListOptions{})
+	return daemonsets.Items
+}
+
 func (sim *Simulator) Close() {
 	sim.cancelFunc()
 	close(sim.simulatorStop)
@@ -691,7 +698,7 @@ func (sim *Simulator) syncResourceList(resourceList simontype.ResourceTypes) err
 	}
 
 	// sync pods
-	if err := sim.SchedulePods(resourceList.Pods); err != nil {
+	if _, err := sim.SchedulePods(resourceList.Pods); err != nil {
 		return err
 	}
 
@@ -740,7 +747,7 @@ func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) error {
 	}
 	// Only for pending pods provisioned by simon
 	if stop {
-		sim.status.stopReason = fmt.Sprintf("pod %s/%s is failed, %d pod(s) are waited to be scheduled: %s: %s", pod.Namespace, pod.Name, sim.status.numOfRemainingPods, stopReason, stopMessage)
+		sim.status.stopReason = fmt.Sprintf("failed to schedule pod (%s/%s), %d pod(s) are waited to be scheduled: %s: %s", pod.Namespace, pod.Name, sim.status.numOfRemainingPods, stopReason, stopMessage)
 		// }
 	} else {
 		sim.status.numOfRemainingPods--
