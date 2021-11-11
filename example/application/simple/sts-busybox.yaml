@@ -1,28 +1,29 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: nginx-sts
+  name: busybox-sts
+  namespace: simple
 spec:
   selector:
     matchLabels:
-      app: nginx-sts
+      app: busybox-sts
   podManagementPolicy: Parallel
-  serviceName: "nginx"
-  replicas: 8
+  serviceName: "busybox"
+  replicas: 4
   template:
     metadata:
       labels:
-        app: nginx-sts
+        app: busybox-sts
     spec:
       affinity:
-        podAffinity:
+        podAntiAffinity:
           # requiredDuringSchedulingIgnoredDuringExecution:
           # - labelSelector:
           #     matchExpressions:
           #     - key: app
           #       operator: In
           #       values:
-          #       - nginx-sts
+          #       - busybox-sts
           #   topologyKey: kubernetes.io/hostname
           preferredDuringSchedulingIgnoredDuringExecution:
           - weight: 100
@@ -32,15 +33,15 @@ spec:
                 - key: app
                   operator: In
                   values:
-                  - nginx-sts
+                  - busybox-sts
               topologyKey: kubernetes.io/hostname
-      # tolerations:
-      # - key: node-role.kubernetes.io/master
-      #   operator: Exists
-      #   effect: NoSchedule
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
       containers:
-      - name: nginx
-        image: harbor.myk8s.aliyunpoc.com/library/busybox
+      - name: busybox
+        image: busybox
         command:
         - sh
         - "-c"
@@ -52,8 +53,8 @@ spec:
           done;
         resources:
           requests:
-            cpu: 12
-            memory: 16Gi
+            cpu: 1
+            memory: 512Mi
           limits:
-            cpu: 24
-            memory: 32Gi
+            cpu: 2
+            memory: 1Gi

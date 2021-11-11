@@ -1,0 +1,16 @@
+apiVersion: simon/v1alpha1
+kind: Config
+metadata:
+  name: simon-config
+spec:
+  cluster:
+    customConfig: ./example/cluster/demo_1
+  appList:
+    - name: yoda
+      path: ./example/application/charts/yoda
+      chart: true
+    - name: simple
+      path: ./example/application/simple
+    - name: complicated
+      path: ./example/application/complicate
+  newNode: ./example/node.yaml

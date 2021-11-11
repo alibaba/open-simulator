@@ -16,11 +16,11 @@ metadata:
   name: fake-node
 status:
   allocatable:
-    cpu: "8"
+    cpu: "32"
     ephemeral-storage: 61255492Ki
     hugepages-1Gi: "0"
     hugepages-2Mi: "0"
-    memory: 16Gi
+    memory: 64Gi
     pods: "110"
   capacity:
     cpu: "4"

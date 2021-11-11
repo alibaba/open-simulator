@@ -21,6 +21,7 @@ require (
 	k8s.io/kube-scheduler v0.20.5
 	k8s.io/kubectl v0.21.0
 	k8s.io/kubernetes v1.20.5
+	sigs.k8s.io/yaml v1.2.0
 )
 
 replace (

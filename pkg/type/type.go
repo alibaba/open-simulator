@@ -9,6 +9,11 @@ import (
 	v1 "k8s.io/api/storage/v1"
 )
 
+type ResourceInfo struct {
+	Name     string
+	Resource ResourceTypes
+}
+
 type ResourceTypes struct {
 	Nodes                  []*corev1.Node
 	Pods                   []*corev1.Pod

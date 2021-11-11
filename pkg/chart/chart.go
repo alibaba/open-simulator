@@ -16,32 +16,29 @@ import (
 )
 
 // ProcessChart parses chart to /tmp/charts
-func ProcessChart(chartPath string) error {
+func ProcessChart(name string, chartPath string) (string, error) {
 	chartRequested, err := loader.Load(chartPath)
 	if err != nil {
-		return err
+		return "", err
 	}
+	chartRequested.Metadata.Name = name
 
 	if err := checkIfInstallable(chartRequested); err != nil {
-		return err
+		return "", err
 	}
 
 	// TODO
 	var vals map[string]interface{}
 	if err := chartutil.ProcessDependencies(chartRequested, vals); err != nil {
-		return err
+		return "", err
 	}
 
 	valuesToRender, err := ToRenderValues(chartRequested, vals)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	if err = renderResources(chartRequested, valuesToRender, true, simontype.DirectoryForChart); err != nil {
-		return err
-	}
-
-	return nil
+	return renderResources(chartRequested, valuesToRender, true)
 }
 
 // checkIfInstallable validates if a chart can be installed
@@ -60,7 +57,7 @@ func ToRenderValues(chrt *chart.Chart, chrtVals map[string]interface{}) (chartut
 	top := map[string]interface{}{
 		"Chart": chrt.Metadata,
 		"Release": map[string]interface{}{
-			"Name":      "test",
+			"Name":      chrt.Name(),
 			"Namespace": "default",
 			"Revision":  1,
 			"Service":   "Helm",
@@ -81,10 +78,10 @@ func ToRenderValues(chrt *chart.Chart, chrtVals map[string]interface{}) (chartut
 	return top, nil
 }
 
-func renderResources(ch *chart.Chart, values chartutil.Values, subNotes bool, outputDir string) error {
+func renderResources(ch *chart.Chart, values chartutil.Values, subNotes bool) (string, error) {
 	files, err := engine.Render(ch, values)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// NOTES.txt gets rendered like all the other files, but because it's not a hook nor a resource,
@@ -111,18 +108,19 @@ func renderResources(ch *chart.Chart, values chartutil.Values, subNotes bool, ou
 	// removed here.
 	_, manifests, err := releaseutil.SortManifests(files, []string{}, releaseutil.InstallOrder)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// fileWritten stores a written file so that we can recognize whether the same named file has been written .
 	// if it exists, we rename it and create it by new name. It ensures that one file only contains one
 	// kubernetes resource object.
+	outputDir := path.Join(simontype.DirectoryForChart, ch.Name())
 	fileWritten := make(map[string]bool)
 	for _, m := range manifests {
-		newName := m.Name
+		newName := path.Base(m.Name)
 		for i := 1; i < 100; i++ {
 			if _, exist := fileWritten[newName]; exist {
-				newName = strings.Replace(m.Name, ".y", fmt.Sprintf("-%d.y", i), 1)
+				newName = strings.Replace(path.Base(m.Name), ".y", fmt.Sprintf("-%d.y", i), 1)
 				continue
 			}
 			fileWritten[newName] = true
@@ -130,11 +128,11 @@ func renderResources(ch *chart.Chart, values chartutil.Values, subNotes bool, ou
 		}
 		err = writeToFile(outputDir, newName, m.Content)
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
 
-	return nil
+	return outputDir, nil
 }
 
 // writeToFile write the <data> to <output-dir>/<name>. if the file exists, we cover it.
