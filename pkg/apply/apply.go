@@ -6,15 +6,14 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"sigs.k8s.io/yaml"
 	"sort"
 
 	"github.com/alibaba/open-simulator/pkg/algo"
+	"github.com/alibaba/open-simulator/pkg/api/v1alpha1"
 	"github.com/alibaba/open-simulator/pkg/chart"
 	"github.com/alibaba/open-simulator/pkg/simulator"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/alibaba/open-simulator/pkg/utils"
-	"github.com/alibaba/open-simulator/pkg/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
@@ -27,6 +26,7 @@ import (
 	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	kubeschedulerscheme "k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
+	"sigs.k8s.io/yaml"
 )
 
 type Options struct {
