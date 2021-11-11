@@ -36,7 +36,7 @@ type Options struct {
 	Interactive                bool
 }
 
-type DefaultApply struct {
+type DefaultApplier struct {
 	cluster         v1alpha1.Cluster
 	appList         []v1alpha1.AppInfo
 	newNode         string
@@ -45,15 +45,10 @@ type DefaultApply struct {
 	interactive     bool
 }
 
-func (applier *DefaultApply) Run() (err error) {
+func (applier *DefaultApplier) Run() (err error) {
 	var resourceList []simontype.ResourceInfo
 
-	// Step 1: verify the validity of the configuration
-	if err = applier.Validate(); err != nil {
-		return fmt.Errorf("Invalid information: %v ", err)
-	}
-
-	// Step2: convert a series of the application paths into the kubernetes objects
+	// Step 1: convert a series of the application paths into the kubernetes objects
 	for _, app := range applier.appList {
 		newPath := app.Path
 
@@ -84,6 +79,7 @@ func (applier *DefaultApply) Run() (err error) {
 		resourceList = append(resourceList, newResource)
 	}
 
+	// Step 2: convert the path of the new node to be added into the kubernetes object
 	objects := utils.DecodeYamlFile(applier.newNode)
 	newNode, exist := objects[0].(*corev1.Node)
 	if !exist {
@@ -178,7 +174,8 @@ func (applier *DefaultApply) Run() (err error) {
 	return nil
 }
 
-func NewApplier(opts Options) DefaultApply {
+// NewApplier returns a default applier that has passed the validity test
+func NewApplier(opts Options) DefaultApplier {
 	simonCR := &v1alpha1.Simon{}
 	configFile, err := ioutil.ReadFile(opts.SimonConfig)
 	if err != nil {
@@ -193,7 +190,7 @@ func NewApplier(opts Options) DefaultApply {
 		log.Fatalf("failed to unmarshal config json to object: %v", err)
 	}
 
-	return DefaultApply{
+	applier := DefaultApplier{
 		cluster:         simonCR.Spec.Cluster,
 		appList:         simonCR.Spec.AppList,
 		newNode:         simonCR.Spec.NewNode,
@@ -201,10 +198,17 @@ func NewApplier(opts Options) DefaultApply {
 		useGreed:        opts.UseGreed,
 		interactive:     opts.Interactive,
 	}
+
+	if err := applier.Validate(); err != nil {
+		fmt.Printf("%v", err)
+		os.Exit(1)
+	}
+
+	return applier
 }
 
 // generateKubeClient generates kube-client by kube-config. And if kube-config file is not provided, the value of kube-client will be nil
-func (applier *DefaultApply) generateKubeClient() (*clientset.Clientset, error) {
+func (applier *DefaultApplier) generateKubeClient() (*clientset.Clientset, error) {
 	if len(applier.cluster.KubeConfig) == 0 {
 		return nil, nil
 	}
@@ -229,7 +233,7 @@ func (applier *DefaultApply) generateKubeClient() (*clientset.Clientset, error) 
 }
 
 // getAndSetSchedulerConfig gets scheduler CompletedConfig and sets the list of scheduler bind plugins to Simon.
-func (applier *DefaultApply) getAndSetSchedulerConfig() (*config.CompletedConfig, error) {
+func (applier *DefaultApplier) getAndSetSchedulerConfig() (*config.CompletedConfig, error) {
 	versionedCfg := kubeschedulerconfigv1beta1.KubeSchedulerConfiguration{}
 	versionedCfg.DebuggingConfiguration = *configv1alpha1.NewRecommendedDebuggingConfiguration()
 	kubeschedulerscheme.Scheme.Default(&versionedCfg)
@@ -270,7 +274,7 @@ func (applier *DefaultApply) getAndSetSchedulerConfig() (*config.CompletedConfig
 	return cc, nil
 }
 
-func (applier *DefaultApply) Validate() error {
+func (applier *DefaultApplier) Validate() error {
 	if len(applier.cluster.KubeConfig) == 0 && len(applier.cluster.CustomCluster) == 0 ||
 		len(applier.cluster.KubeConfig) != 0 && len(applier.cluster.CustomCluster) != 0 {
 		return fmt.Errorf("only one of values of both kubeConfig and customConfig must exist")
