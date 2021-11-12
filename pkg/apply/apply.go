@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/alibaba/open-simulator/pkg/algo"
 	"github.com/alibaba/open-simulator/pkg/api/v1alpha1"
@@ -141,9 +142,21 @@ func (applier *DefaultApplier) Run() (err error) {
 				// sort.Sort(aff)
 			}
 
+			collectDaemonSets := sim.GetDaemonSets()
+			for _, item := range resourceInfo.Resource.DaemonSets {
+				collectDaemonSets = append(collectDaemonSets, *item)
+			}
+
 			fmt.Printf(utils.ColorCyan+"%s: %d pods to be simulated, %d pods of which to be scheduled\n"+utils.ColorReset, resourceInfo.Name, len(appPods), utils.GetTotalNumberOfPodsWithoutNodeName(appPods))
-			err = sim.SchedulePods(appPods)
+			failedPod, err := sim.SchedulePods(appPods)
 			if err != nil {
+				if strings.Contains(err.Error(), simontype.CreateError) ||
+					!utils.NodeShouldRunPod(newNode, failedPod) ||
+					!utils.MeetResourceRequests(newNode, failedPod, collectDaemonSets) {
+					fmt.Printf("the pod (%s/%s) that cannot be scheduled successfully by adding node:\n", failedPod.Namespace, failedPod.Name)
+					log.Fatalf(utils.ColorRed+"%s"+utils.ColorReset, err.Error())
+				}
+
 				fmt.Printf(utils.ColorRed+"%s: %s\n"+utils.ColorReset, resourceInfo.Name, err.Error())
 				break
 			} else {

@@ -13,6 +13,7 @@ const (
 
 	StopReasonSuccess   = "everything is ok"
 	StopReasonDoNotStop = "do not stop"
+	CreateError         = "failed to create pod"
 
 	AnnoWorkloadKind      = "simon/workload-kind"
 	AnnoWorkloadName      = "simon/workload-name"
