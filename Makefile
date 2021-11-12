@@ -18,8 +18,7 @@ all: build
 build:
 	GO111MODULE=$(GO111MODULE) GOARCH=$(GOARCH) GOOS=$(GOOS) CGO_ENABLED=0 go build -trimpath $(LD_FLAGS) -v -o $(OUTPUT_DIR)/$(BINARY_NAME) ./cmd
 	# chmod +x $(OUTPUT_DIR)/$(BINARY_NAME)
-	# bin/simon debug -f ./example/
-	# bin/simon apply -f ./example/simon-config.yaml
+	# bin/simon apply --interactive -f ./example/simon-config.yaml
 
 .PHONY: test 
 test:

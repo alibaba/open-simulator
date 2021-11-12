@@ -338,7 +338,7 @@ func (sim *Simulator) Report() {
 
 			for _, device := range nodeStorage.Devices {
 				capacity := resource.NewQuantity(device.Capacity, resource.BinarySI)
-				used := "not used"
+				used := "unused"
 				if device.IsAllocated {
 					used = "used"
 				}

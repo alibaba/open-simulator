@@ -2,13 +2,14 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: database-sts
+  namespace: more
 spec:
   selector:
     matchLabels:
       app: database-sts
   podManagementPolicy: Parallel
   serviceName: "database"
-  replicas: 48
+  replicas: 8
   template:
     metadata:
       labels:
@@ -62,8 +63,8 @@ spec:
           done;
         resources: # 必填：resource情况
           requests:
-            cpu: 24
-            memory: 128Gi
+            cpu: 2
+            memory: 8Gi
           limits:
-            cpu: 24
-            memory: 128Gi
+            cpu: 2
+            memory: 8Gi

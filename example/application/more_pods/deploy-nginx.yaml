@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: nginx-deploy
+  namespace: more
   labels:
     app: nginx-deploy
 spec:
@@ -33,8 +34,8 @@ spec:
             done;
         resources:
           requests:
-            cpu: 16
-            memory: 16Gi
+            cpu: 1
+            memory: 2Gi
           limits:
-            cpu: 16
-            memory: 32Gi
+            cpu: 1
+            memory: 2Gi
