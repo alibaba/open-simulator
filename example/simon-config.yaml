@@ -13,4 +13,8 @@ spec:
       path: ./example/application/simple
     - name: complicated
       path: ./example/application/complicate
+    - name: open_local
+      path: ./example/application/open_local
+    - name: more_pods
+      path: ./example/application/more_pods
   newNode: ./example/node.yaml

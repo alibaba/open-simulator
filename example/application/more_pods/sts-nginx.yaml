@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: nginx-sts
+  namespace: more
 spec:
   selector:
     matchLabels:
@@ -52,8 +53,8 @@ spec:
           done;
         resources:
           requests:
-            cpu: 12
-            memory: 16Gi
+            cpu: 2
+            memory: 4Gi
           limits:
-            cpu: 24
-            memory: 32Gi
+            cpu: 4
+            memory: 8Gi

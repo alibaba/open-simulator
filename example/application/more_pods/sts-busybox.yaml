@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: busybox-sts
+  namespace: more
 spec:
   selector:
     matchLabels:
@@ -52,8 +53,8 @@ spec:
           done;
         resources:
           requests:
-            cpu: 8
-            memory: 16Gi
+            cpu: 1
+            memory: 2Gi
           limits:
-            cpu: 8
-            memory: 16Gi
+            cpu: 1
+            memory: 2Gi
