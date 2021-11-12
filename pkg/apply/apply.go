@@ -2,10 +2,12 @@ package apply
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -85,6 +87,10 @@ func (applier *DefaultApplier) Run() (err error) {
 	newNode, exist := objects[0].(*corev1.Node)
 	if !exist {
 		return fmt.Errorf("The NewNode file(%s) is not a Node yaml ", applier.newNode)
+	}
+	storageFile := fmt.Sprintf("%s.json", strings.TrimSuffix(applier.newNode, filepath.Ext(applier.newNode)))
+	if err := utils.AddLocalStorageInfoInNode(newNode, storageFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("Add local storage info in NewNode failed: %s", err.Error())
 	}
 
 	// Step 3: generate kube-client
@@ -266,12 +272,37 @@ func (applier *DefaultApplier) getAndSetSchedulerConfig() (*config.CompletedConf
 
 	if applier.useGreed {
 		kcfg.Profiles[0].Plugins.Score = &kubeschedulerconfig.PluginSet{
-			Enabled: []kubeschedulerconfig.Plugin{{Name: simontype.SimonPluginName}},
+			Enabled: []kubeschedulerconfig.Plugin{
+				{
+					Name: simontype.SimonPluginName,
+				},
+				{
+					Name: simontype.OpenLocalPluginName,
+				},
+			},
 		}
 	}
+	kcfg.Profiles[0].Plugins.Filter = &kubeschedulerconfig.PluginSet{
+		Enabled: []kubeschedulerconfig.Plugin{
+			{
+				Name: simontype.OpenLocalPluginName,
+			},
+		},
+	}
 	kcfg.Profiles[0].Plugins.Bind = &kubeschedulerconfig.PluginSet{
-		Enabled:  []kubeschedulerconfig.Plugin{{Name: simontype.SimonPluginName}},
-		Disabled: []kubeschedulerconfig.Plugin{{Name: defaultbinder.Name}},
+		Enabled: []kubeschedulerconfig.Plugin{
+			{
+				Name: simontype.OpenLocalPluginName,
+			},
+			{
+				Name: simontype.SimonPluginName,
+			},
+		},
+		Disabled: []kubeschedulerconfig.Plugin{
+			{
+				Name: defaultbinder.Name,
+			},
+		},
 	}
 	// set percentageOfNodesToScore value to 100
 	kcfg.PercentageOfNodesToScore = 100
