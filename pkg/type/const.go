@@ -25,6 +25,10 @@ const (
 	LabelNewNode              = "simon/new-node"
 	LabelNewPod               = "simon/new-pod"
 
+	EnvMaxCPU    = "MaxCPU"
+	EnvMaxMemory = "MaxMemory"
+	EnvMaxVG     = "MaxVG"
+
 	WorkloadKindDeployment  = "Deployment"
 	WorkloadKindStatefulSet = "StatefulSet"
 	WorkloadKindDaemonSet   = "DaemonSet"

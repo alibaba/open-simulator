@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 
 	simonplugin "github.com/alibaba/open-simulator/pkg/simulator/plugin"
@@ -320,8 +321,7 @@ func (sim *Simulator) Report() {
 		if nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]; exist {
 			var nodeStorage utils.FakeNodeStorage
 			if err := ffjson.Unmarshal([]byte(nodeStorageStr), &nodeStorage); err != nil {
-				fmt.Printf("err when unmarshal json data, node is %s\n", node.Name)
-				return
+				log.Fatalf("err when unmarshal json data, node is %s\n", node.Name)
 			}
 			var storageData []string
 			for _, vg := range nodeStorage.VGs {
@@ -760,4 +760,71 @@ func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) error {
 	sim.simulatorStop <- struct{}{}
 
 	return nil
+}
+
+func (sim *Simulator) DoesClusterMeetRequirements() (bool, string) {
+	nodes, _ := sim.fakeclient.CoreV1().Nodes().List(sim.ctx, metav1.ListOptions{})
+	allPods, _ := sim.fakeclient.CoreV1().Pods(corev1.NamespaceAll).List(sim.ctx, metav1.ListOptions{})
+
+	var err error
+	var maxcpu int = 100
+	var maxmem int = 100
+	var maxvg int = 100
+	if str := os.Getenv(simontype.EnvMaxCPU); str != "" {
+		if maxcpu, err = strconv.Atoi(str); err != nil {
+			log.Fatalf("convert env %s to int failed: %s", simontype.EnvMaxCPU, err.Error())
+		}
+		if maxcpu > 100 || maxcpu < 0 {
+			maxcpu = 100
+		}
+	}
+
+	if str := os.Getenv(simontype.EnvMaxMemory); str != "" {
+		if maxmem, err = strconv.Atoi(str); err != nil {
+			log.Fatalf("convert env %s to int failed: %s", simontype.EnvMaxMemory, err.Error())
+		}
+		if maxmem > 100 || maxmem < 0 {
+			maxmem = 100
+		}
+	}
+
+	if str := os.Getenv(simontype.EnvMaxVG); str != "" {
+		if maxvg, err = strconv.Atoi(str); err != nil {
+			log.Fatalf("convert env %s to int failed: %s", simontype.EnvMaxVG, err.Error())
+		}
+		if maxvg > 100 || maxvg < 0 {
+			maxvg = 100
+		}
+	}
+
+	for _, node := range nodes.Items {
+		reqs, limits := utils.GetPodsTotalRequestsAndLimitsByNodeName(allPods.Items, node.Name)
+		nodeCpuReq, _, nodeMemoryReq, _, _, _ :=
+			reqs[corev1.ResourceCPU], limits[corev1.ResourceCPU], reqs[corev1.ResourceMemory], limits[corev1.ResourceMemory], reqs[corev1.ResourceEphemeralStorage], limits[corev1.ResourceEphemeralStorage]
+		allocatable := node.Status.Allocatable
+		nodeFractionCpuReq := int64(float64(nodeCpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100)
+		nodeFractionMemoryReq := int64(float64(nodeMemoryReq.Value()) / float64(allocatable.Memory().Value()) * 100)
+		log.Debugf("node %s nodeFractionCpuReq %d nodeFractionMemoryReq %d", node.Name, nodeFractionCpuReq, nodeFractionMemoryReq)
+		log.Debugf("maxcpu %d maxmem %d", maxcpu, maxmem)
+		if nodeFractionCpuReq > int64(maxcpu) {
+			return false, fmt.Sprintf("cpu usage of node %s is %d%%, but env %s is %d", node.Name, nodeFractionCpuReq, simontype.EnvMaxCPU, maxcpu)
+		}
+		if nodeFractionMemoryReq > int64(maxmem) {
+			return false, fmt.Sprintf("memory usage of node %s is %d%%, but env %s is %d", node.Name, nodeFractionMemoryReq, simontype.EnvMaxMemory, maxmem)
+		}
+
+		if nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]; exist {
+			var nodeStorage utils.FakeNodeStorage
+			if err := ffjson.Unmarshal([]byte(nodeStorageStr), &nodeStorage); err != nil {
+				log.Fatalf("err when unmarshal json data, node is %s\n", node.Name)
+			}
+			for _, vg := range nodeStorage.VGs {
+				fraction := int(float64(vg.Requested) / float64(vg.Capacity) * 100)
+				if fraction > maxvg {
+					return false, fmt.Sprintf("vg %s usage of node %s is %d%%, but env %s is %d", vg.Name, node.Name, fraction, simontype.EnvMaxVG, maxvg)
+				}
+			}
+		}
+	}
+	return true, ""
 }
