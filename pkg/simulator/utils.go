@@ -10,8 +10,8 @@ import (
 	externalclientset "k8s.io/client-go/kubernetes"
 )
 
-// GenerateValidPodsFromResources generate valid pods from resources
-func GenerateValidPodsFromResources(client externalclientset.Interface, resources simontype.ResourceTypes) []*corev1.Pod {
+// GenerateValidPodsFromAppResources generate valid pods from resources
+func GenerateValidPodsFromAppResources(client externalclientset.Interface, appname string, resources simontype.ResourceTypes) []*corev1.Pod {
 	pods := make([]*corev1.Pod, 0)
 	pods = append(pods, utils.GetValidPodExcludeDaemonSet(&resources)...)
 
@@ -33,7 +33,7 @@ func GenerateValidPodsFromResources(client externalclientset.Interface, resource
 
 	// set label
 	for _, pod := range pods {
-		metav1.SetMetaDataLabel(&pod.ObjectMeta, simontype.LabelNewPod, "")
+		metav1.SetMetaDataLabel(&pod.ObjectMeta, simontype.LabelAppName, appname)
 	}
 
 	return pods
