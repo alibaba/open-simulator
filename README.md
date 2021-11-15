@@ -17,6 +17,70 @@
 - **交付前**：评估产品最少物理资源，通过仿真系统计算出交付需要的特定规格节点数量、磁盘数量（类似朱雀系统）；
 - **运行时**：用户新建 or 扩容 Workload，仿真调度系统会给出当前集群物理资源是否满足，并给出集群扩容建议（详细到扩容节点数）
 
+## Configuration File
+
+open-simulator通过yaml配置文件来导入各种集群或者应用资源信息
+
+```yaml
+apiVersion: simon/v1alpha1
+kind: Config
+metadata:
+  name: simon-config
+spec:
+  cluster:
+    customConfig: example/cluster/demo_1
+  appList:
+    - name: yoda
+      path: example/application/charts/yoda
+      chart: true
+    - name: simple
+      path: example/application/simple
+    - name: complicated
+      path: example/application/complicate
+  newNode: example/node.yaml
+```
+
+### 文件三大板块：
+
+- cluster: 指定集群信息
+- appList: 指定需部署的应用信息
+- newNode: 指定集群规模调整所需的Node信息
+
+#### cluster
+
+- customConfig: 自定义集群文件
+- kubeConfig: 真实集群kube-config文件
+
+以上两者只取其一
+
+#### appList
+
+文件类型:
+
+- chart资源
+- 非chart资源（yaml文件或文件夹）
+
+资源类型:
+
+- Deployment
+- StatefulSet
+- DaemonSet
+- Job
+- CronJob
+- Physical Volume
+- Physical Volume Claim
+- ······
+
+CR资源说明：由于CR资源行为存在不确定性，open-simulator暂时未支持CR资源。但我们计划制定一种CR资源规范，来消除其不确定性，从而达到支持的目的。
+
+不同文件类型混合部署:
+
+appList字段中可任意配置已支持的多种文件类型，并通过配置顺序来自定义你想要的调度顺序
+
+#### newNode
+
+节点规格可根据需求自定义配置，但只支持配置一种规格的Node节点
+
 ## Run
 
 ### 使用
@@ -24,17 +88,7 @@
 
 执行命令
 
-真实集群: /bin/simon apply --kube-config=[kubeconfig文件目录] -f [待调度的yaml资源文件夹]
-
-模拟集群: /bin/simon apply --cluster-config=[clusterconfig文件目录] -f [待调度的yaml资源文件夹]
-
-Yaml文件夹可支持多级子目录，以区分资源类型，参考./example目录。目前支持以下资源类型，更多类型会在后续支持:
-
-- Pod
-- Node
-- Deployment
-- StatefulSet
-- DaemonSet
+/bin/simon apply -f [仿真调度配置文件]
 
 执行后输出一个名为configmap-simon.yaml的文件，用以保存结果。
 
@@ -71,7 +125,25 @@ minikube start
 # 拷贝 kubeconfig 文件到项目目录
 cp ~/.kube/config  ./kubeconfig
 
+# 编辑配置文件
+apiVersion: simon/v1alpha1
+kind: Config
+metadata:
+  name: simon-config
+spec:
+  cluster:
+    customConfig: example/cluster/demo_1
+  appList:
+    - name: yoda
+      path: example/application/charts/yoda
+      chart: true
+    - name: simple
+      path: example/application/simple
+    - name: complicated
+      path: example/application/complicate
+  newNode: example/node.yaml
+
 # 项目编译及运行
 make
-bin/simon apply --kube-config=./kubeconfig -f ./example/application_example/simple_example_by_huizhi
+bin/simon apply  -f example/simon-config.yaml
 ```
