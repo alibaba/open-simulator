@@ -38,6 +38,7 @@ var _ = framework.BindPlugin(&LocalPlugin{})
 
 // NewLocalPlugin
 func NewLocalPlugin(schedulerName string, fakeclient externalclientset.Interface, storageInformers storagev1informers.Interface, configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
+	localtype.SchedulerStrategy = localtype.StrategySpread
 	return &LocalPlugin{
 		schedulerName:   schedulerName,
 		storageInformer: storageInformers,

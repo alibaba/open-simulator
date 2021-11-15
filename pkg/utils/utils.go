@@ -140,7 +140,7 @@ func DecodeYamlFile(file string) []runtime.Object {
 		decode := scheme.Codecs.UniversalDeserializer().Decode
 		obj, _, err := decode([]byte(yaml), nil, nil)
 		if err != nil {
-			fmt.Printf("Error while decoding YAML object. Err was: %s", err)
+			fmt.Printf("Error while decoding YAML file %s. Err was: %s", file, err)
 			os.Exit(1)
 		}
 
@@ -253,12 +253,13 @@ func MakeValidPodsByDeployment(deploy *apps.Deployment) []*corev1.Pod {
 		var replica int32 = 1
 		deploy.Spec.Replicas = &replica
 	}
+
 	for ordinal := 0; ordinal < int(*deploy.Spec.Replicas); ordinal++ {
 		pod, _ := controller.GetPodFromTemplate(&deploy.Spec.Template, deploy, nil)
 		pod.ObjectMeta.Name = fmt.Sprintf("deployment-%s-%d", deploy.Name, ordinal)
 		pod.ObjectMeta.Namespace = deploy.Namespace
 		pod = MakePodValid(pod)
-		pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindDeployment, deploy.Name, pod.Namespace)
+		// pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindDeployment, deploy.Name, pod.Namespace)
 		pods = append(pods, pod)
 	}
 	return pods
@@ -276,7 +277,7 @@ func MakeValidPodByJob(job *batchv1.Job) []*corev1.Pod {
 		pod.ObjectMeta.Name = fmt.Sprintf("job-%s-%d", job.GetName(), ordinal)
 		pod.ObjectMeta.Namespace = job.GetNamespace()
 		pod = MakePodValid(pod)
-		pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindDeployment, pod.Name, pod.Namespace)
+		// pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindDeployment, pod.Name, pod.Namespace)
 		pods = append(pods, pod)
 	}
 
@@ -446,7 +447,7 @@ func MakeValidPodsByStatefulSet(set *apps.StatefulSet) []*corev1.Pod {
 		pod.ObjectMeta.Name = fmt.Sprintf("statefulset-%s-%d", set.Name, ordinal)
 		pod.ObjectMeta.Namespace = set.Namespace
 		pod = MakePodValid(pod)
-		pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindStatefulSet, set.Name, pod.Namespace)
+		// pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindStatefulSet, set.Name, pod.Namespace)
 
 		// Storage
 		b, err := json.Marshal(volumes)
@@ -488,7 +489,7 @@ func NewDaemonPod(ds *apps.DaemonSet, nodeName string) *corev1.Pod {
 	pod.ObjectMeta.Name = fmt.Sprintf("daemonset-%s-%s", ds.Name, nodeName)
 	pod.ObjectMeta.Namespace = ds.Namespace
 	pod = MakePodValid(pod)
-	pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindDaemonSet, ds.Name, pod.Namespace)
+	// pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindDaemonSet, ds.Name, pod.Namespace)
 	pod.Spec.NodeName = nodeName
 	return pod
 }
@@ -519,6 +520,8 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 				var priv = false
 				newPod.Spec.InitContainers[i].SecurityContext.Privileged = &priv
 			}
+			newPod.Spec.InitContainers[i].VolumeMounts = nil
+			newPod.Spec.InitContainers[i].Env = nil
 		}
 	}
 	if newPod.Spec.Containers != nil {
@@ -534,6 +537,7 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 				newPod.Spec.Containers[i].SecurityContext.Privileged = &priv
 			}
 			newPod.Spec.Containers[i].VolumeMounts = nil
+			newPod.Spec.Containers[i].Env = nil
 		}
 	}
 
@@ -556,6 +560,18 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 	if newPod.ObjectMeta.Annotations == nil {
 		newPod.ObjectMeta.Annotations = map[string]string{}
 	}
+
+	// handle volume
+	if newPod.Spec.Volumes != nil {
+		for i := range newPod.Spec.Volumes {
+			if newPod.Spec.Volumes[i].PersistentVolumeClaim != nil {
+				newPod.Spec.Volumes[i].HostPath = new(corev1.HostPathVolumeSource)
+				newPod.Spec.Volumes[i].HostPath.Path = "/tmp"
+				newPod.Spec.Volumes[i].PersistentVolumeClaim = nil
+			}
+		}
+	}
+
 	// todo: handle pvc
 	if !ValidatePod(newPod) {
 		os.Exit(1)
@@ -570,6 +586,13 @@ func AddWorkloadInfoToPod(pod *corev1.Pod, kind string, name string, namespace s
 	pod.ObjectMeta.Annotations[simontype.AnnoWorkloadName] = name
 	pod.ObjectMeta.Annotations[simontype.AnnoWorkloadNamespace] = namespace
 	return pod
+}
+
+func AddWorkloadInfoToPods(pods []*corev1.Pod, appname string) {
+	// set label
+	for _, pod := range pods {
+		AddWorkloadInfoToPod(pod, "", appname, "")
+	}
 }
 
 func MakeValidNodeByNode(node *corev1.Node, nodename string) *corev1.Node {
@@ -600,7 +623,7 @@ func ValidatePod(pod *corev1.Pod) bool {
 		for _, err := range errs {
 			errStrs = append(errStrs, fmt.Sprintf("%v: %v", err.Type, err.Field))
 		}
-		fmt.Printf("Invalid pod: %#v", strings.Join(errStrs, ", "))
+		fmt.Printf("Invalid pod(%s/%s): %#v", pod.Namespace, pod.Name, strings.Join(errStrs, ", "))
 		return false
 	}
 	return true

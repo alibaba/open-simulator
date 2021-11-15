@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 
 	simonplugin "github.com/alibaba/open-simulator/pkg/simulator/plugin"
@@ -187,6 +188,58 @@ func (sim *Simulator) GetStatus() string {
 	return sim.status.stopReason
 }
 
+func (sim *Simulator) IsClusterSatisfied() bool {
+	nodes, _ := sim.fakeclient.CoreV1().Nodes().List(sim.ctx, metav1.ListOptions{})
+	allPods, _ := sim.fakeclient.CoreV1().Pods(corev1.NamespaceAll).List(sim.ctx, metav1.ListOptions{
+		// FieldSelector not work
+		// issue: https://github.com/kubernetes/client-go/issues/326#issuecomment-412993326
+		// FieldSelector: "spec.nodeName=%s" + node.Name,
+	})
+
+	var mincpu int = 100
+	mincpustr := os.Getenv("MinCPU")
+	if mincpustr != "" {
+		mincpu, _ = strconv.Atoi(mincpustr)
+	}
+	var minmem int = 100
+	minmemstr := os.Getenv("MinMem")
+	if minmemstr != "" {
+		minmem, _ = strconv.Atoi(minmemstr)
+	}
+	var minstorage int = 100
+	minstoragestr := os.Getenv("MinLocalStorage")
+	if minstoragestr != "" {
+		minstorage, _ = strconv.Atoi(minstoragestr)
+	}
+
+	for _, node := range nodes.Items {
+		reqs, limits := utils.GetPodsTotalRequestsAndLimitsByNodeName(allPods.Items, node.Name)
+		nodeCpuReq, _, nodeMemoryReq, _, _, _ :=
+			reqs[corev1.ResourceCPU], limits[corev1.ResourceCPU], reqs[corev1.ResourceMemory], limits[corev1.ResourceMemory], reqs[corev1.ResourceEphemeralStorage], limits[corev1.ResourceEphemeralStorage]
+		allocatable := node.Status.Allocatable
+		nodeFractionCpuReq := int64(float64(nodeCpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100)
+		nodeFractionMemoryReq := int64(float64(nodeMemoryReq.Value()) / float64(allocatable.Memory().Value()) * 100)
+		if nodeFractionCpuReq > int64(mincpu) {
+			return false
+		}
+		if nodeFractionMemoryReq > int64(minmem) {
+			return false
+		}
+
+		if nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]; exist {
+			var nodeStorage utils.FakeNodeStorage
+			ffjson.Unmarshal([]byte(nodeStorageStr), &nodeStorage)
+			for _, vg := range nodeStorage.VGs {
+				fraction := int(float64(vg.Requested) / float64(vg.Capacity) * 100)
+				if fraction > minstorage {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
 // Report print out scheduling result of pods
 func (sim *Simulator) Report() {
 	// Step 1: report pod info
@@ -196,11 +249,12 @@ func (sim *Simulator) Report() {
 		"Node",
 		"Pod",
 		"CPU Requests",
-		"CPU Limits",
+		// "CPU Limits",
 		"Memory Requests",
-		"Memory Limits",
+		// "Memory Limits",
 		"Volume Requests",
-		"New Pod",
+		// "New Pod",
+		"APP Name",
 	})
 
 	nodes, _ := sim.fakeclient.CoreV1().Nodes().List(sim.ctx, metav1.ListOptions{})
@@ -216,15 +270,15 @@ func (sim *Simulator) Report() {
 				continue
 			}
 			req, limit := resourcehelper.PodRequestsAndLimits(&pod)
-			cpuReq, cpuLimit, memoryReq, memoryLimit := req[corev1.ResourceCPU], limit[corev1.ResourceCPU], req[corev1.ResourceMemory], limit[corev1.ResourceMemory]
+			cpuReq, _, memoryReq, _ := req[corev1.ResourceCPU], limit[corev1.ResourceCPU], req[corev1.ResourceMemory], limit[corev1.ResourceMemory]
 			fractionCpuReq := float64(cpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
-			fractionCpuLimit := float64(cpuLimit.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
+			// fractionCpuLimit := float64(cpuLimit.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
 			fractionMemoryReq := float64(memoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
-			fractionMemoryLimit := float64(memoryLimit.Value()) / float64(allocatable.Memory().Value()) * 100
-			newPod := ""
-			if _, exist := pod.Labels[simontype.LabelNewPod]; exist {
-				newPod = "√"
-			}
+			// fractionMemoryLimit := float64(memoryLimit.Value()) / float64(allocatable.Memory().Value()) * 100
+			// newPod := ""
+			// if _, exist := pod.Labels[simontype.LabelNewPod]; exist {
+			// 	newPod = "√"
+			// }
 
 			// Storage
 			podVolumeStr := ""
@@ -239,15 +293,22 @@ func (sim *Simulator) Report() {
 				}
 			}
 
+			// app name
+			appname := "cluster"
+			if str, exist := pod.Annotations[simontype.AnnoWorkloadName]; exist {
+				appname = str
+			}
+
 			data := []string{
 				node.Name,
 				fmt.Sprintf("%s/%s", pod.Namespace, pod.Name),
 				fmt.Sprintf("%s(%d%%)", cpuReq.String(), int64(fractionCpuReq)),
-				fmt.Sprintf("%s(%d%%)", cpuLimit.String(), int64(fractionCpuLimit)),
+				// fmt.Sprintf("%s(%d%%)", cpuLimit.String(), int64(fractionCpuLimit)),
 				fmt.Sprintf("%s(%d%%)", memoryReq.String(), int64(fractionMemoryReq)),
-				fmt.Sprintf("%s(%d%%)", memoryLimit.String(), int64(fractionMemoryLimit)),
+				// fmt.Sprintf("%s(%d%%)", memoryLimit.String(), int64(fractionMemoryLimit)),
 				podVolumeStr,
-				newPod,
+				// newPod,
+				appname,
 			}
 			podTable.Append(data)
 		}
@@ -266,23 +327,23 @@ func (sim *Simulator) Report() {
 		"Node",
 		"CPU Allocatable",
 		"CPU Requests",
-		"CPU Limits",
+		// "CPU Limits",
 		"Memory Allocatable",
 		"Memory Requests",
-		"Memory Limits",
+		// "Memory Limits",
 		"Pod Count",
 		"New Node",
 	})
 
 	for _, node := range nodes.Items {
 		reqs, limits := utils.GetPodsTotalRequestsAndLimitsByNodeName(allPods.Items, node.Name)
-		nodeCpuReq, nodeCpuLimit, nodeMemoryReq, nodeMemoryLimit, _, _ :=
+		nodeCpuReq, _, nodeMemoryReq, _, _, _ :=
 			reqs[corev1.ResourceCPU], limits[corev1.ResourceCPU], reqs[corev1.ResourceMemory], limits[corev1.ResourceMemory], reqs[corev1.ResourceEphemeralStorage], limits[corev1.ResourceEphemeralStorage]
 		allocatable := node.Status.Allocatable
 		nodeFractionCpuReq := float64(nodeCpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
-		nodeFractionCpuLimit := float64(nodeCpuLimit.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
+		// nodeFractionCpuLimit := float64(nodeCpuLimit.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
 		nodeFractionMemoryReq := float64(nodeMemoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
-		nodeFractionMemoryLimit := float64(nodeMemoryLimit.Value()) / float64(allocatable.Memory().Value()) * 100
+		// nodeFractionMemoryLimit := float64(nodeMemoryLimit.Value()) / float64(allocatable.Memory().Value()) * 100
 		newNode := ""
 		if _, exist := node.Labels[simontype.LabelNewNode]; exist {
 			newNode = "√"
@@ -292,10 +353,10 @@ func (sim *Simulator) Report() {
 			node.Name,
 			allocatable.Cpu().String(),
 			fmt.Sprintf("%s(%d%%)", nodeCpuReq.String(), int64(nodeFractionCpuReq)),
-			fmt.Sprintf("%s(%d%%)", nodeCpuLimit.String(), int64(nodeFractionCpuLimit)),
+			// fmt.Sprintf("%s(%d%%)", nodeCpuLimit.String(), int64(nodeFractionCpuLimit)),
 			allocatable.Memory().String(),
 			fmt.Sprintf("%s(%d%%)", nodeMemoryReq.String(), int64(nodeFractionMemoryReq)),
-			fmt.Sprintf("%s(%d%%)", nodeMemoryLimit.String(), int64(nodeFractionMemoryLimit)),
+			// fmt.Sprintf("%s(%d%%)", nodeMemoryLimit.String(), int64(nodeFractionMemoryLimit)),
 			fmt.Sprintf("%d", utils.CountPodOnTheNode(allPods, node.Name)),
 			newNode,
 		}
