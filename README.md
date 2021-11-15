@@ -20,7 +20,8 @@
 ## Configuration File
 
 open-simulator通过yaml配置文件来导入各种集群或者应用资源信息
-```
+
+```yaml
 apiVersion: simon/v1alpha1
 kind: Config
 metadata:
