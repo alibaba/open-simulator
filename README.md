@@ -47,8 +47,9 @@ spec:
 
 #### cluster
 
-customConfig: 自定义集群文件
-kubeConfig: 真实集群kube-config文件
+- customConfig: 自定义集群文件
+- kubeConfig: 真实集群kube-config文件
+
 以上两者只取其一
 
 #### appList
