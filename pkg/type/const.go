@@ -25,6 +25,10 @@ const (
 	LabelNewNode              = "simon/new-node"
 	LabelAppName              = "simon/app-name"
 
+	EnvMaxCPU    = "MaxCPU"
+	EnvMaxMemory = "MaxMemory"
+	EnvMaxVG     = "MaxVG"
+
 	WorkloadKindDeployment  = "Deployment"
 	WorkloadKindStatefulSet = "StatefulSet"
 	WorkloadKindDaemonSet   = "DaemonSet"

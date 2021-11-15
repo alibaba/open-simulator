@@ -180,13 +180,17 @@ func (applier *DefaultApplier) Run() (err error) {
 					if strings.Contains(err.Error(), simontype.CreateError) ||
 						!utils.NodeShouldRunPod(newNode, failedPod) ||
 						!utils.MeetResourceRequests(newNode, failedPod, collectDaemonSets) {
-						fmt.Printf("the pod (%s/%s) that cannot be scheduled successfully by adding node:\n", failedPod.Namespace, failedPod.Name)
+						fmt.Printf(utils.ColorRed+"the pod (%s/%s) that cannot be scheduled successfully by adding node\n"+utils.ColorReset, failedPod.Namespace, failedPod.Name)
 						log.Fatalf(utils.ColorRed+"%s"+utils.ColorReset, err.Error())
 					}
 
 					fmt.Printf(utils.ColorRed+"%s: %s\n"+utils.ColorReset, name, err.Error())
 					break
 				} else {
+					if fit, failedReason := sim.DoesClusterMeetRequirements(); !fit {
+						fmt.Printf(utils.ColorRed+"the node %s does not meet requirements: %s\n"+utils.ColorReset, newNode.Name, failedReason)
+						return nil, false
+					}
 					success = true
 					fmt.Printf(utils.ColorGreen+"%s: Success!\n"+utils.ColorReset, name)
 				}
