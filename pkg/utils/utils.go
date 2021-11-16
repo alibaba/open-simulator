@@ -140,7 +140,7 @@ func DecodeYamlFile(file string) []runtime.Object {
 		decode := scheme.Codecs.UniversalDeserializer().Decode
 		obj, _, err := decode([]byte(yaml), nil, nil)
 		if err != nil {
-			fmt.Printf("Error while decoding YAML object. Err was: %s", err)
+			fmt.Printf("Error while decoding YAML file %s. Err was: %s", file, err)
 			os.Exit(1)
 		}
 
@@ -519,6 +519,8 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 				var priv = false
 				newPod.Spec.InitContainers[i].SecurityContext.Privileged = &priv
 			}
+			newPod.Spec.InitContainers[i].VolumeMounts = nil
+			newPod.Spec.InitContainers[i].Env = nil
 		}
 	}
 	if newPod.Spec.Containers != nil {
@@ -534,6 +536,7 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 				newPod.Spec.Containers[i].SecurityContext.Privileged = &priv
 			}
 			newPod.Spec.Containers[i].VolumeMounts = nil
+			newPod.Spec.Containers[i].Env = nil
 		}
 	}
 
@@ -556,6 +559,19 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 	if newPod.ObjectMeta.Annotations == nil {
 		newPod.ObjectMeta.Annotations = map[string]string{}
 	}
+
+	// handle volume
+	// notice: open-local volume should not used in deployment, cause it is not nas storage.
+	if newPod.Spec.Volumes != nil {
+		for i := range newPod.Spec.Volumes {
+			if newPod.Spec.Volumes[i].PersistentVolumeClaim != nil {
+				newPod.Spec.Volumes[i].HostPath = new(corev1.HostPathVolumeSource)
+				newPod.Spec.Volumes[i].HostPath.Path = "/tmp"
+				newPod.Spec.Volumes[i].PersistentVolumeClaim = nil
+			}
+		}
+	}
+
 	// todo: handle pvc
 	if !ValidatePod(newPod) {
 		os.Exit(1)
