@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	localcache "github.com/alibaba/open-local/pkg/scheduler/algorithm/cache"
 	"io/ioutil"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 
 	simonplugin "github.com/alibaba/open-simulator/pkg/simulator/plugin"
@@ -269,12 +271,11 @@ func (sim *Simulator) Report() {
 	})
 
 	for _, node := range nodes.Items {
-		reqs, limits := utils.GetPodsTotalRequestsAndLimitsByNodeName(allPods.Items, node.Name)
-		nodeCpuReq, _, nodeMemoryReq, _, _, _ :=
-			reqs[corev1.ResourceCPU], limits[corev1.ResourceCPU], reqs[corev1.ResourceMemory], limits[corev1.ResourceMemory], reqs[corev1.ResourceEphemeralStorage], limits[corev1.ResourceEphemeralStorage]
 		allocatable := node.Status.Allocatable
-		nodeFractionCpuReq := float64(nodeCpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
-		nodeFractionMemoryReq := float64(nodeMemoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
+		reqs, _ := utils.GetPodsTotalRequestsAndLimitsByNodeName(allPods.Items, node.Name)
+		nodeCpuReq, nodeMemoryReq := reqs[corev1.ResourceCPU], reqs[corev1.ResourceMemory]
+		nodeCpuReqFraction := float64(nodeCpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
+		nodeMemoryReqFraction := float64(nodeMemoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
 		newNode := ""
 		if _, exist := node.Labels[simontype.LabelNewNode]; exist {
 			newNode = "√"
@@ -283,9 +284,9 @@ func (sim *Simulator) Report() {
 		data := []string{
 			node.Name,
 			allocatable.Cpu().String(),
-			fmt.Sprintf("%s(%d%%)", nodeCpuReq.String(), int64(nodeFractionCpuReq)),
+			fmt.Sprintf("%s(%d%%)", nodeCpuReq.String(), int64(nodeCpuReqFraction)),
 			allocatable.Memory().String(),
-			fmt.Sprintf("%s(%d%%)", nodeMemoryReq.String(), int64(nodeFractionMemoryReq)),
+			fmt.Sprintf("%s(%d%%)", nodeMemoryReq.String(), int64(nodeMemoryReqFraction)),
 			fmt.Sprintf("%d", utils.CountPodOnTheNode(allPods, node.Name)),
 			newNode,
 		}
@@ -308,10 +309,9 @@ func (sim *Simulator) Report() {
 	})
 	for _, node := range nodes.Items {
 		if nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]; exist {
-			var nodeStorage utils.FakeNodeStorage
+			var nodeStorage utils.NodeStorage
 			if err := ffjson.Unmarshal([]byte(nodeStorageStr), &nodeStorage); err != nil {
-				fmt.Printf("err when unmarshal json data, node is %s\n", node.Name)
-				return
+				log.Fatalf("err when unmarshal json data, node is %s\n", node.Name)
 			}
 			var storageData []string
 			for _, vg := range nodeStorage.VGs {
@@ -747,4 +747,88 @@ func (sim *Simulator) update(pod *corev1.Pod, schedulerName string) error {
 	sim.simulatorStop <- struct{}{}
 
 	return nil
+}
+
+func (sim *Simulator) SatisfyResourceSetting() (bool, string) {
+	nodes, _ := sim.fakeclient.CoreV1().Nodes().List(sim.ctx, metav1.ListOptions{})
+	allPods, _ := sim.fakeclient.CoreV1().Pods(corev1.NamespaceAll).List(sim.ctx, metav1.ListOptions{})
+
+	var err error
+	var maxcpu int = 100
+	var maxmem int = 100
+	var maxvg int = 100
+	if str := os.Getenv(simontype.EnvMaxCPU); str != "" {
+		if maxcpu, err = strconv.Atoi(str); err != nil {
+			log.Fatalf("convert env %s to int failed: %s", simontype.EnvMaxCPU, err.Error())
+		}
+		if maxcpu > 100 || maxcpu < 0 {
+			maxcpu = 100
+		}
+	}
+
+	if str := os.Getenv(simontype.EnvMaxMemory); str != "" {
+		if maxmem, err = strconv.Atoi(str); err != nil {
+			log.Fatalf("convert env %s to int failed: %s", simontype.EnvMaxMemory, err.Error())
+		}
+		if maxmem > 100 || maxmem < 0 {
+			maxmem = 100
+		}
+	}
+
+	if str := os.Getenv(simontype.EnvMaxVG); str != "" {
+		if maxvg, err = strconv.Atoi(str); err != nil {
+			log.Fatalf("convert env %s to int failed: %s", simontype.EnvMaxVG, err.Error())
+		}
+		if maxvg > 100 || maxvg < 0 {
+			maxvg = 100
+		}
+	}
+
+	totalAllocatableResource := map[corev1.ResourceName]*resource.Quantity{
+		corev1.ResourceCPU:    resource.NewQuantity(0, resource.DecimalSI),
+		corev1.ResourceMemory: resource.NewQuantity(0, resource.DecimalSI),
+	}
+	totalUsedResource := map[corev1.ResourceName]*resource.Quantity{
+		corev1.ResourceCPU:    resource.NewQuantity(0, resource.DecimalSI),
+		corev1.ResourceMemory: resource.NewQuantity(0, resource.DecimalSI),
+	}
+	totalVGResource := localcache.SharedResource{}
+
+	for _, node := range nodes.Items {
+		totalAllocatableResource[corev1.ResourceCPU].Add(*node.Status.Allocatable.Cpu())
+		totalAllocatableResource[corev1.ResourceMemory].Add(*node.Status.Allocatable.Memory())
+
+		reqs, _ := utils.GetPodsTotalRequestsAndLimitsByNodeName(allPods.Items, node.Name)
+		totalUsedResource[corev1.ResourceCPU].Add(reqs[corev1.ResourceCPU])
+		totalUsedResource[corev1.ResourceMemory].Add(reqs[corev1.ResourceMemory])
+
+		if nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]; exist {
+			var nodeStorage utils.NodeStorage
+			if err := ffjson.Unmarshal([]byte(nodeStorageStr), &nodeStorage); err != nil {
+				log.Fatalf("err when unmarshal json data, node is %s\n", node.Name)
+			}
+			for _, vg := range nodeStorage.VGs {
+				totalVGResource.Requested += vg.Requested
+				totalVGResource.Capacity += vg.Capacity
+			}
+		}
+	}
+
+	cpuOccupancyRate := int(float64(totalUsedResource[corev1.ResourceCPU].MilliValue()) / float64(totalAllocatableResource[corev1.ResourceCPU].MilliValue()) * 100)
+	memoryOccupancyRate := int(float64(totalUsedResource[corev1.ResourceMemory].MilliValue()) / float64(totalAllocatableResource[corev1.ResourceMemory].MilliValue()) * 100)
+	if cpuOccupancyRate > maxcpu {
+		return false, fmt.Sprintf("the average occupancy rate(%d%%) of cpu goes beyond the env setting(%d%%)", cpuOccupancyRate, maxcpu)
+	}
+	if memoryOccupancyRate > maxmem {
+		return false, fmt.Sprintf("the average occupancy rate(%d%%) of memory goes beyond the env setting(%d%%)", memoryOccupancyRate, maxmem)
+	}
+
+	if totalVGResource.Capacity != 0 {
+		vgOccupancyRate := int(float64(totalVGResource.Requested) / float64(totalVGResource.Capacity) * 100)
+		if vgOccupancyRate > maxvg {
+			return false, fmt.Sprintf("the average occupancy rate(%d%%) of vg goes beyond the env setting(%d%%)", vgOccupancyRate, maxvg)
+		}
+	}
+
+	return true, ""
 }

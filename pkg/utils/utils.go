@@ -81,8 +81,8 @@ func GetObjectsFromFiles(filePaths []string) (simontype.ResourceTypes, error) {
 		objects := DecodeYamlFile(f)
 		for _, obj := range objects {
 			switch o := obj.(type) {
-			case nil:
-				continue
+			//case nil:
+			//	continue
 			case *corev1.Node:
 				resources.Nodes = append(resources.Nodes, o)
 				storageFile := fmt.Sprintf("%s.json", strings.TrimSuffix(f, filepath.Ext(f)))
@@ -293,7 +293,7 @@ func MakeValidPodByCronJob(cronjob *batchv1beta1.CronJob) []*corev1.Pod {
 	return pods
 }
 
-type FakeNodeStorage struct {
+type NodeStorage struct {
 	VGs     []localcache.SharedResource    `json:"vgs"`
 	Devices []localcache.ExclusiveResource `json:"devices"`
 }
@@ -309,13 +309,13 @@ type VolumeRequest struct {
 	Volumes []Volume `json:"volumes"`
 }
 
-func GetNodeStorage(node *corev1.Node) *FakeNodeStorage {
+func GetNodeStorage(node *corev1.Node) *NodeStorage {
 	nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]
 	if !exist {
 		return nil
 	}
 
-	nodeStorage := new(FakeNodeStorage)
+	nodeStorage := new(NodeStorage)
 	if err := ffjson.Unmarshal([]byte(nodeStorageStr), nodeStorage); err != nil {
 		log.Errorf("unmarshal info of node %s failed: %s", node.Name, err.Error())
 		return nil
@@ -640,8 +640,8 @@ func ValidateNode(node *corev1.Node) bool {
 	return true
 }
 
-func GetPodsTotalRequestsAndLimitsByNodeName(pods []corev1.Pod, nodeName string) (reqs map[corev1.ResourceName]resource.Quantity, limits map[corev1.ResourceName]resource.Quantity) {
-	reqs, limits = map[corev1.ResourceName]resource.Quantity{}, map[corev1.ResourceName]resource.Quantity{}
+func GetPodsTotalRequestsAndLimitsByNodeName(pods []corev1.Pod, nodeName string) (map[corev1.ResourceName]resource.Quantity, map[corev1.ResourceName]resource.Quantity) {
+	reqs, limits := make(map[corev1.ResourceName]resource.Quantity), make(map[corev1.ResourceName]resource.Quantity)
 	for _, pod := range pods {
 		if pod.Spec.NodeName != nodeName {
 			continue
@@ -664,7 +664,7 @@ func GetPodsTotalRequestsAndLimitsByNodeName(pods []corev1.Pod, nodeName string)
 			}
 		}
 	}
-	return
+	return reqs, limits
 }
 
 // CountPodOnTheNode get pods count by node name

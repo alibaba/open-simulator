@@ -4,17 +4,17 @@ metadata:
   name: simon-config
 spec:
   cluster:
-    customConfig: ./example/cluster/demo_1
+    customConfig: example/cluster/demo_1
   appList:
     - name: yoda
-      path: ./example/application/charts/yoda
+      path: example/application/charts/yoda
       chart: true
     - name: simple
-      path: ./example/application/simple
+      path: example/application/simple
     - name: complicated
-      path: ./example/application/complicate
+      path: example/application/complicate
     - name: open_local
-      path: ./example/application/open_local
+      path: example/application/open_local
     - name: more_pods
-      path: ./example/application/more_pods
-  newNode: ./example/node.yaml
+      path: example/application/more_pods
+  newNode: example/node.yaml
