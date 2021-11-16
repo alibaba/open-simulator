@@ -19,5 +19,5 @@ func NewAffinityQueue(pods []*corev1.Pod) *AffinityQueue {
 func (aff *AffinityQueue) Len() int      { return len(aff.pods) }
 func (aff *AffinityQueue) Swap(i, j int) { aff.pods[i], aff.pods[j] = aff.pods[j], aff.pods[i] }
 func (aff *AffinityQueue) Less(i, j int) bool {
-	return aff.pods[i].Spec.NodeSelector == nil
+	return aff.pods[i].Spec.NodeSelector != nil
 }

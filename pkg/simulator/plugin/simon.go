@@ -19,17 +19,15 @@ import (
 
 // SimonPlugin is a plugin for scheduling framework
 type SimonPlugin struct {
-	schedulerName string
-	fakeclient    externalclientset.Interface
+	fakeclient externalclientset.Interface
 }
 
 var _ = framework.ScorePlugin(&SimonPlugin{})
 var _ = framework.BindPlugin(&SimonPlugin{})
 
-func NewSimonPlugin(schedulerName string, fakeclient externalclientset.Interface, configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
+func NewSimonPlugin(fakeclient externalclientset.Interface, configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
 	return &SimonPlugin{
-		schedulerName: schedulerName,
-		fakeclient:    fakeclient,
+		fakeclient: fakeclient,
 	}, nil
 }
 
@@ -40,7 +38,7 @@ func (plugin *SimonPlugin) Name() string {
 
 // Bind invoked at the bind extension point.
 func (plugin *SimonPlugin) Bind(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) *framework.Status {
-	return plugin.BindPodToNode(ctx, state, pod, nodeName, plugin.schedulerName)
+	return plugin.BindPodToNode(ctx, state, pod, nodeName)
 }
 
 // Score invoked at the score extension point.
@@ -104,7 +102,7 @@ func (plugin *SimonPlugin) NormalizeScore(ctx context.Context, state *framework.
 }
 
 // BindPodToNode bind pod to a node and trigger pod update event
-func (plugin *SimonPlugin) BindPodToNode(ctx context.Context, state *framework.CycleState, p *corev1.Pod, nodeName string, schedulerName string) *framework.Status {
+func (plugin *SimonPlugin) BindPodToNode(ctx context.Context, state *framework.CycleState, p *corev1.Pod, nodeName string) *framework.Status {
 	// fmt.Printf("bind pod %s/%s to node %s\n", p.Namespace, p.Name, nodeName)
 	// Step 1: update pod info
 	pod, err := plugin.fakeclient.CoreV1().Pods(p.Namespace).Get(context.TODO(), p.Name, metav1.GetOptions{})

@@ -7,29 +7,23 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"sort"
+	"strconv"
 	"strings"
 
 	survey "github.com/AlecAivazis/survey/v2"
-	"github.com/alibaba/open-simulator/pkg/algo"
+	localcache "github.com/alibaba/open-local/pkg/scheduler/algorithm/cache"
 	"github.com/alibaba/open-simulator/pkg/api/v1alpha1"
 	"github.com/alibaba/open-simulator/pkg/chart"
 	"github.com/alibaba/open-simulator/pkg/simulator"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/alibaba/open-simulator/pkg/utils"
+	"github.com/olekukonko/tablewriter"
+	"github.com/pquerna/ffjson/ffjson"
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
-	clientset "k8s.io/client-go/kubernetes"
-	restclient "k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
-	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
-	"k8s.io/component-base/logs"
-	kubeschedulerconfigv1beta1 "k8s.io/kube-scheduler/config/v1beta1"
-	"k8s.io/kubernetes/cmd/kube-scheduler/app/config"
-	schedoptions "k8s.io/kubernetes/cmd/kube-scheduler/app/options"
-	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
-	kubeschedulerscheme "k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	resourcehelper "k8s.io/kubectl/pkg/util/resource"
 	"sigs.k8s.io/yaml"
 )
 
@@ -40,7 +34,7 @@ type Options struct {
 	Interactive                bool
 }
 
-type DefaultApplier struct {
+type Applier struct {
 	cluster         v1alpha1.Cluster
 	appList         []v1alpha1.AppInfo
 	newNode         string
@@ -49,8 +43,45 @@ type DefaultApplier struct {
 	interactive     bool
 }
 
-func (applier *DefaultApplier) Run() (err error) {
-	resourceMap := make(map[string]simontype.ResourceTypes)
+type Interface interface {
+	Run() error
+}
+
+// NewApplier returns a default applier that has passed the validity test
+func NewApplier(opts Options) Interface {
+	simonCR := &v1alpha1.Simon{}
+	configFile, err := ioutil.ReadFile(opts.SimonConfig)
+	if err != nil {
+		log.Fatalf("failed to read config file(%s): %v", opts.SimonConfig, err)
+	}
+	configJSON, err := yaml.YAMLToJSON(configFile)
+	if err != nil {
+		log.Fatalf("failed to unmarshal config file(%s) to json: %v", opts.SimonConfig, err)
+	}
+
+	if err := json.Unmarshal(configJSON, simonCR); err != nil {
+		log.Fatalf("failed to unmarshal config json to object: %v", err)
+	}
+
+	applier := &Applier{
+		cluster:         simonCR.Spec.Cluster,
+		appList:         simonCR.Spec.AppList,
+		newNode:         simonCR.Spec.NewNode,
+		schedulerConfig: opts.DefaultSchedulerConfigFile,
+		useGreed:        opts.UseGreed,
+		interactive:     opts.Interactive,
+	}
+
+	if err := applier.validate(); err != nil {
+		fmt.Printf("%v", err)
+		os.Exit(1)
+	}
+
+	return applier
+}
+
+func (applier *Applier) Run() (err error) {
+	resourceMap := make(map[string]simulator.ResourceTypes)
 	var resourceList []string
 
 	// Step 1: convert a series of the application paths into the kubernetes objects
@@ -72,7 +103,7 @@ func (applier *DefaultApplier) Run() (err error) {
 		}
 
 		// convert yml or yaml file of the application files to kubernetes appResources
-		appResource, err := utils.GetObjectsFromFiles(appFilePaths)
+		appResource, err := simulator.GetObjectsFromFiles(appFilePaths)
 		if err != nil {
 			return fmt.Errorf("%v", err)
 		}
@@ -88,24 +119,13 @@ func (applier *DefaultApplier) Run() (err error) {
 		return fmt.Errorf("The NewNode file(%s) is not a Node yaml ", applier.newNode)
 	}
 	storageFile := fmt.Sprintf("%s.json", strings.TrimSuffix(applier.newNode, filepath.Ext(applier.newNode)))
-	if err := utils.AddLocalStorageInfoInNode(newNode, storageFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := simulator.AddLocalStorageInfoInNode(newNode, storageFile); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("Add local storage info in NewNode failed: %s", err.Error())
 	}
 
-	// Step 3: generate kube-client
-	kubeClient, err := applier.generateKubeClient()
-	if err != nil {
-		return fmt.Errorf("Failed to get kubeclient: %v ", err)
-	}
-
-	// Step 4: get scheduler CompletedConfig and set the list of scheduler bind plugins to Simon.
-	cc, err := applier.getAndSetSchedulerConfig()
-	if err != nil {
-		return err
-	}
-
-	// Step 5: resourceList confirmation
-	var selectedResourceList []string
+	// Step 3: resourceList confirmation
+	var selectedAppNameList []string
+	var selectedResourceList []simulator.AppResource
 	if applier.interactive {
 		var multiQs = []*survey.Question{
 			{
@@ -116,235 +136,106 @@ func (applier *DefaultApplier) Run() (err error) {
 				},
 			},
 		}
-		err = survey.Ask(multiQs, &selectedResourceList)
+		err = survey.Ask(multiQs, &selectedAppNameList)
 		if err != nil {
 			log.Fatal(err.Error())
 		}
 	} else {
-		selectedResourceList = resourceList
+		selectedAppNameList = resourceList
+	}
+	for _, name := range selectedAppNameList {
+		selectedResourceList = append(selectedResourceList, simulator.AppResource{
+			Name:     name,
+			Resource: resourceMap[name],
+		})
 	}
 
-	// Step 6: get result
+	// Step 4: get result
+	success := false
+	var result *simulator.SimulateResult
 	for i := 0; i < 100; i++ {
-		f := func() (bool, error) {
-			// init simulator
-			sim, err := simulator.New(kubeClient, cc)
+		// var clusterResource
+		// synchronize resources from real or simulated cluster to fake cluster
+		var clusterResource simulator.ResourceTypes
+		var err error
+		if applier.cluster.KubeConfig != "" {
+			// generate kube-client
+			kubeclient, err := utils.CreateKubeClient(applier.cluster.KubeConfig)
 			if err != nil {
-				return false, err
+				return fmt.Errorf("Failed to create kubeclient: %v ", err)
 			}
-			defer sim.Close()
-
-			// start a scheduler as a goroutine
-			sim.RunScheduler()
-
-			// synchronize resources from real or simulated cluster to fake cluster
-			if err := sim.CreateFakeCluster(applier.cluster.CustomCluster); err != nil {
-				return false, fmt.Errorf("create fake cluster failed: %s", err.Error())
+			clusterResource, err = simulator.CreateClusterResourceFromClient(kubeclient)
+			if err != nil {
+				return err
 			}
-
-			// add nodes to get a successful scheduling
-			if err := sim.AddNewNode(newNode, i); err != nil {
-				return false, err
+		} else {
+			clusterResource, err = simulator.CreateClusterResourceFromClusterConfig(applier.cluster.CustomCluster)
+			if err != nil {
+				return err
 			}
-
-			// success: to determine whether the current resource is successfully scheduled
-			// added: the daemon pods derived from the cluster daemonset only need to be added once
-			success, added := true, false
-			for _, name := range selectedResourceList {
-				success = false
-				// synchronize pods generated by deployment、daemonset and like this, then format all unscheduled pods
-				appPods := simulator.GenerateValidPodsFromAppResources(sim.GetFakeClient(), name, resourceMap[name])
-				if !added {
-					appPods = append(appPods, sim.GenerateValidDaemonPodsForNewNode()...)
-					added = true
-				}
-
-				// sort pods
-				if applier.useGreed {
-					greed := algo.NewGreedQueue(sim.GetNodes(), appPods)
-					sort.Sort(greed)
-					// tol := algo.NewTolerationQueue(pods)
-					// sort.Sort(tol)
-					// aff := algo.NewAffinityQueue(pods)
-					// sort.Sort(aff)
-				}
-
-				collectDaemonSets := sim.GetDaemonSets()
-				for _, item := range resourceMap[name].DaemonSets {
-					collectDaemonSets = append(collectDaemonSets, *item)
-				}
-
-				fmt.Printf(utils.ColorCyan+"%s: %d pods to be simulated, %d pods of which to be scheduled\n"+utils.ColorReset, name, len(appPods), utils.GetTotalNumberOfPodsWithoutNodeName(appPods))
-				failedPod, err := sim.SchedulePods(appPods)
-				if err != nil {
-					if strings.Contains(err.Error(), simontype.CreateError) ||
-						!utils.NodeShouldRunPod(newNode, failedPod) ||
-						!utils.MeetResourceRequests(newNode, failedPod, collectDaemonSets) {
-						fmt.Printf(utils.ColorRed+"the pod (%s/%s) that cannot be scheduled successfully by adding node\n"+utils.ColorReset, failedPod.Namespace, failedPod.Name)
-						log.Fatalf(utils.ColorRed+"%s"+utils.ColorReset, err.Error())
-					}
-
-					fmt.Printf(utils.ColorRed+"%s: %s\n"+utils.ColorReset, name, err.Error())
-					break
-				} else {
-					if os.Getenv(simontype.EnvMaxCPU) != "" || os.Getenv(simontype.EnvMaxMemory) != "" || os.Getenv(simontype.EnvMaxVG) != "" {
-						if satisfaction, dissatisfiedSetting := sim.SatisfyResourceSetting(); !satisfaction {
-							fmt.Printf(utils.ColorRed+"the average occupancy rate of current cluster is dissatisfied the env setting: %s\n"+utils.ColorReset, dissatisfiedSetting)
-							return false, nil
-						}
-					}
-
-					success = true
-					fmt.Printf(utils.ColorGreen+"%s: Success!\n"+utils.ColorReset, name)
-				}
-			}
-			if success {
-				fmt.Println(utils.ColorGreen)
-				sim.Report()
-				fmt.Println(utils.ColorReset)
-				return true, nil
-			}
-			return false, nil
 		}
 
-		success, err := f()
+		// add nodes to get a successful scheduling
+		fmt.Printf(utils.ColorYellow+"add %d node(s)\n"+utils.ColorReset, i)
+		nodes, err := newFakeNodes(newNode, i)
 		if err != nil {
 			return err
 		}
-		if success {
-			fmt.Printf(utils.ColorCyan + "Congratulations! A Successful Scheduling!\n" + utils.ColorReset)
-			break
+		clusterResource.Nodes = append(clusterResource.Nodes, nodes...)
+
+		// synchronize pods generated by deployment、daemonset and like this, then format all unscheduled pods
+		result, err = simulator.Simulate(clusterResource, selectedResourceList)
+		if err != nil {
+			return err
+		}
+		if len(result.UnscheduledPods) == 0 {
+			if ok, reason, err := satisfyResourceSetting(result.NodeStatus); err != nil {
+				return err
+			} else if !ok {
+				fmt.Printf(utils.ColorRed+"%s"+utils.ColorReset, reason)
+			} else {
+				success = true
+				break
+			}
+		} else {
+			fmt.Printf(utils.ColorRed+"there are %d unscheduled pods\n"+utils.ColorReset, len(result.UnscheduledPods))
+			allDaemonSets := clusterResource.DaemonSets
+			for _, app := range selectedResourceList {
+				allDaemonSets = append(allDaemonSets, app.Resource.DaemonSets...)
+			}
+			for _, unScheduledPod := range result.UnscheduledPods {
+				log.Debugf("schedule pod %s/%s failed: %s", unScheduledPod.Pod.Namespace, unScheduledPod.Pod.Name, unScheduledPod.Reason)
+				if !utils.NodeShouldRunPod(newNode, unScheduledPod.Pod) {
+					fmt.Printf(utils.ColorRed+"schedule pod %s/%s failed: %s the pod cannot be scheduled successfully by adding node: pod does not fit new node affinity or taints\n"+utils.ColorReset, unScheduledPod.Pod.Namespace, unScheduledPod.Pod.Name, unScheduledPod.Reason)
+					fmt.Printf(utils.ColorRed)
+					report(result.NodeStatus)
+					fmt.Printf(utils.ColorReset)
+					return nil
+				}
+				if !utils.MeetResourceRequests(newNode, unScheduledPod.Pod, allDaemonSets) {
+					fmt.Printf(utils.ColorRed+"schedule pod %s/%s failed: new node cannot meet resource requests of pod: the total requested resource of daemonset pods in new node is too large\n"+utils.ColorReset, unScheduledPod.Pod.Namespace, unScheduledPod.Pod.Name)
+					fmt.Printf(utils.ColorRed)
+					report(result.NodeStatus)
+					fmt.Printf(utils.ColorReset)
+					return nil
+				}
+			}
 		}
 	}
+
+	if success {
+		fmt.Printf(utils.ColorGreen + "Success!\n" + utils.ColorReset)
+		fmt.Printf(utils.ColorGreen)
+		report(result.NodeStatus)
+		fmt.Printf(utils.ColorReset)
+	} else {
+		fmt.Printf(utils.ColorRed + "we have added 100 nodes but still failed!!" + utils.ColorReset)
+	}
+
 	return nil
 }
 
-// NewApplier returns a default applier that has passed the validity test
-func NewApplier(opts Options) DefaultApplier {
-	simonCR := &v1alpha1.Simon{}
-	configFile, err := ioutil.ReadFile(opts.SimonConfig)
-	if err != nil {
-		log.Fatalf("failed to read config file(%s): %v", opts.SimonConfig, err)
-	}
-	configJSON, err := yaml.YAMLToJSON(configFile)
-	if err != nil {
-		log.Fatalf("failed to unmarshal config file(%s) to json: %v", opts.SimonConfig, err)
-	}
-
-	if err := json.Unmarshal(configJSON, simonCR); err != nil {
-		log.Fatalf("failed to unmarshal config json to object: %v", err)
-	}
-
-	applier := DefaultApplier{
-		cluster:         simonCR.Spec.Cluster,
-		appList:         simonCR.Spec.AppList,
-		newNode:         simonCR.Spec.NewNode,
-		schedulerConfig: opts.DefaultSchedulerConfigFile,
-		useGreed:        opts.UseGreed,
-		interactive:     opts.Interactive,
-	}
-
-	if err := applier.Validate(); err != nil {
-		fmt.Printf("%v", err)
-		os.Exit(1)
-	}
-
-	return applier
-}
-
-// generateKubeClient generates kube-client by kube-config. And if kube-config file is not provided, the value of kube-client will be nil
-func (applier *DefaultApplier) generateKubeClient() (*clientset.Clientset, error) {
-	if len(applier.cluster.KubeConfig) == 0 {
-		return nil, nil
-	}
-
-	var err error
-	var cfg *restclient.Config
-	master, err := utils.GetMasterFromKubeConfig(applier.cluster.KubeConfig)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to parse kubeclient file: %v ", err)
-	}
-
-	cfg, err = clientcmd.BuildConfigFromFlags(master, applier.cluster.KubeConfig)
-	if err != nil {
-		return nil, fmt.Errorf("Unable to build config: %v ", err)
-	}
-
-	kubeClient, err := clientset.NewForConfig(cfg)
-	if err != nil {
-		return nil, err
-	}
-	return kubeClient, nil
-}
-
-// getAndSetSchedulerConfig gets scheduler CompletedConfig and sets the list of scheduler bind plugins to Simon.
-func (applier *DefaultApplier) getAndSetSchedulerConfig() (*config.CompletedConfig, error) {
-	versionedCfg := kubeschedulerconfigv1beta1.KubeSchedulerConfiguration{}
-	versionedCfg.DebuggingConfiguration = *configv1alpha1.NewRecommendedDebuggingConfiguration()
-	kubeschedulerscheme.Scheme.Default(&versionedCfg)
-	kcfg := kubeschedulerconfig.KubeSchedulerConfiguration{}
-	if err := kubeschedulerscheme.Scheme.Convert(&versionedCfg, &kcfg, nil); err != nil {
-		return nil, err
-	}
-	if len(kcfg.Profiles) == 0 {
-		kcfg.Profiles = []kubeschedulerconfig.KubeSchedulerProfile{
-			{},
-		}
-	}
-	kcfg.Profiles[0].SchedulerName = corev1.DefaultSchedulerName
-	if kcfg.Profiles[0].Plugins == nil {
-		kcfg.Profiles[0].Plugins = &kubeschedulerconfig.Plugins{}
-	}
-
-	if applier.useGreed {
-		kcfg.Profiles[0].Plugins.Score = &kubeschedulerconfig.PluginSet{
-			Enabled: []kubeschedulerconfig.Plugin{
-				{
-					Name: simontype.SimonPluginName,
-				},
-				{
-					Name: simontype.OpenLocalPluginName,
-				},
-			},
-		}
-	}
-	kcfg.Profiles[0].Plugins.Filter = &kubeschedulerconfig.PluginSet{
-		Enabled: []kubeschedulerconfig.Plugin{
-			{
-				Name: simontype.OpenLocalPluginName,
-			},
-		},
-	}
-	kcfg.Profiles[0].Plugins.Bind = &kubeschedulerconfig.PluginSet{
-		Enabled: []kubeschedulerconfig.Plugin{
-			{
-				Name: simontype.OpenLocalPluginName,
-			},
-			{
-				Name: simontype.SimonPluginName,
-			},
-		},
-		Disabled: []kubeschedulerconfig.Plugin{
-			{
-				Name: defaultbinder.Name,
-			},
-		},
-	}
-	// set percentageOfNodesToScore value to 100
-	kcfg.PercentageOfNodesToScore = 100
-	opts := &schedoptions.Options{
-		ComponentConfig: kcfg,
-		ConfigFile:      applier.schedulerConfig,
-		Logs:            logs.NewOptions(),
-	}
-	cc, err := utils.InitKubeSchedulerConfiguration(opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to init kube scheduler configuration: %v ", err)
-	}
-	return cc, nil
-}
-
-func (applier *DefaultApplier) Validate() error {
+func (applier *Applier) validate() error {
 	if len(applier.cluster.KubeConfig) == 0 && len(applier.cluster.CustomCluster) == 0 ||
 		len(applier.cluster.KubeConfig) != 0 && len(applier.cluster.CustomCluster) != 0 {
 		return fmt.Errorf("only one of values of both kubeConfig and customConfig must exist")
@@ -381,4 +272,272 @@ func (applier *DefaultApplier) Validate() error {
 	}
 
 	return nil
+}
+
+func newFakeNodes(node *corev1.Node, nodeCount int) ([]*corev1.Node, error) {
+	if node == nil {
+		return nil, fmt.Errorf("node is nil")
+	}
+
+	var nodes []*corev1.Node
+	// make fake nodes
+	for i := 0; i < nodeCount; i++ {
+		hostname := fmt.Sprintf("%s-%02d", simontype.NewNodeNamePrefix, i)
+		node := utils.MakeValidNodeByNode(node, hostname)
+		metav1.SetMetaDataLabel(&node.ObjectMeta, simontype.LabelNewNode, "")
+		nodes = append(nodes, node.DeepCopy())
+	}
+	return nodes, nil
+}
+
+// report print out scheduling result of pods
+func report(nodeStatuses []simulator.NodeStatus) {
+	// Step 1: report pod info
+	fmt.Println("Pod Info")
+	podTable := tablewriter.NewWriter(os.Stdout)
+	podTable.SetHeader([]string{
+		"Node",
+		"Pod",
+		"CPU Requests",
+		"Memory Requests",
+		"Volume Requests",
+		"App Name",
+	})
+
+	for _, status := range nodeStatuses {
+		node := status.Node
+		allocatable := node.Status.Allocatable
+		for _, pod := range status.Pods {
+			if pod.Spec.NodeName != node.Name {
+				continue
+			}
+			req, limit := resourcehelper.PodRequestsAndLimits(pod)
+			cpuReq, _, memoryReq, _ := req[corev1.ResourceCPU], limit[corev1.ResourceCPU], req[corev1.ResourceMemory], limit[corev1.ResourceMemory]
+			fractionCpuReq := float64(cpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
+			fractionMemoryReq := float64(memoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
+
+			// app name
+			appname := ""
+			if str, exist := pod.Labels[simontype.LabelAppName]; exist {
+				appname = str
+			}
+
+			// Storage
+			podVolumeStr := ""
+			if volumes := utils.GetPodStorage(pod); volumes != nil {
+				for i, volume := range volumes.Volumes {
+					volumeQuantity := resource.NewQuantity(volume.Size, resource.BinarySI)
+					volumeStr := fmt.Sprintf("<%d> %s: %s", i, volume.Kind, volumeQuantity.String())
+					podVolumeStr = podVolumeStr + volumeStr
+					if i+1 != len(volumes.Volumes) {
+						podVolumeStr = fmt.Sprintf("%s\n", podVolumeStr)
+					}
+				}
+			}
+
+			data := []string{
+				node.Name,
+				fmt.Sprintf("%s/%s", pod.Namespace, pod.Name),
+				fmt.Sprintf("%s(%d%%)", cpuReq.String(), int64(fractionCpuReq)),
+				fmt.Sprintf("%s(%d%%)", memoryReq.String(), int64(fractionMemoryReq)),
+				podVolumeStr,
+				appname,
+			}
+			podTable.Append(data)
+		}
+	}
+	podTable.SetAutoMergeCellsByColumnIndex([]int{0})
+	podTable.SetRowLine(true)
+	podTable.SetAlignment(tablewriter.ALIGN_LEFT)
+	podTable.Render() // Send output
+
+	fmt.Println()
+
+	// Step 2: report node info
+	fmt.Println("Node Info")
+	nodeTable := tablewriter.NewWriter(os.Stdout)
+	nodeTable.SetHeader([]string{
+		"Node",
+		"CPU Allocatable",
+		"CPU Requests",
+		"Memory Allocatable",
+		"Memory Requests",
+		"Pod Count",
+		"New Node",
+	})
+
+	var allPods []corev1.Pod
+	for _, status := range nodeStatuses {
+		for _, pod := range status.Pods {
+			allPods = append(allPods, *pod)
+		}
+	}
+	for _, status := range nodeStatuses {
+		node := status.Node
+		allocatable := node.Status.Allocatable
+		reqs, _ := utils.GetPodsTotalRequestsAndLimitsByNodeName(allPods, node.Name)
+		nodeCpuReq, nodeMemoryReq := reqs[corev1.ResourceCPU], reqs[corev1.ResourceMemory]
+		nodeCpuReqFraction := float64(nodeCpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
+		nodeMemoryReqFraction := float64(nodeMemoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
+		newNode := ""
+		if _, exist := node.Labels[simontype.LabelNewNode]; exist {
+			newNode = "√"
+		}
+
+		data := []string{
+			node.Name,
+			allocatable.Cpu().String(),
+			fmt.Sprintf("%s(%d%%)", nodeCpuReq.String(), int64(nodeCpuReqFraction)),
+			allocatable.Memory().String(),
+			fmt.Sprintf("%s(%d%%)", nodeMemoryReq.String(), int64(nodeMemoryReqFraction)),
+			fmt.Sprintf("%d", len(status.Pods)),
+			newNode,
+		}
+		nodeTable.Append(data)
+	}
+	nodeTable.SetRowLine(true)
+	nodeTable.SetAlignment(tablewriter.ALIGN_LEFT)
+	nodeTable.Render() // Send output
+	fmt.Println()
+
+	// Step 3: report node storage info
+	fmt.Println("Node Storage Info")
+	nodeStorageTable := tablewriter.NewWriter(os.Stdout)
+	nodeStorageTable.SetHeader([]string{
+		"Node",
+		"Storage Kind",
+		"Storage Name",
+		"Storage Allocatable",
+		"Storage Requests",
+	})
+	for _, status := range nodeStatuses {
+		node := status.Node
+		if nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]; exist {
+			var nodeStorage utils.NodeStorage
+			if err := ffjson.Unmarshal([]byte(nodeStorageStr), &nodeStorage); err != nil {
+				log.Fatalf("err when unmarshal json data, node is %s\n", node.Name)
+			}
+			var storageData []string
+			for _, vg := range nodeStorage.VGs {
+				capacity := resource.NewQuantity(vg.Capacity, resource.BinarySI)
+				request := resource.NewQuantity(vg.Requested, resource.BinarySI)
+				storageData = []string{
+					node.Name,
+					"VG",
+					vg.Name,
+					capacity.String(),
+					fmt.Sprintf("%s(%d%%)", request.String(), int64(float64(vg.Requested)/float64(vg.Capacity)*100)),
+				}
+				nodeStorageTable.Append(storageData)
+			}
+
+			for _, device := range nodeStorage.Devices {
+				capacity := resource.NewQuantity(device.Capacity, resource.BinarySI)
+				used := "unused"
+				if device.IsAllocated {
+					used = "used"
+				}
+				storageData = []string{
+					node.Name,
+					fmt.Sprintf("Device(%s)", device.MediaType),
+					device.Device,
+					capacity.String(),
+					used,
+				}
+				nodeStorageTable.Append(storageData)
+			}
+		}
+	}
+	nodeStorageTable.SetAutoMergeCellsByColumnIndex([]int{0})
+	nodeStorageTable.SetRowLine(true)
+	nodeStorageTable.SetAlignment(tablewriter.ALIGN_LEFT)
+	nodeStorageTable.Render() // Send output
+}
+
+func satisfyResourceSetting(nodeStatuses []simulator.NodeStatus) (bool, string, error) {
+	var err error
+	var maxcpu int = 100
+	var maxmem int = 100
+	var maxvg int = 100
+	if str := os.Getenv(simontype.EnvMaxCPU); str != "" {
+		if maxcpu, err = strconv.Atoi(str); err != nil {
+			return false, "", fmt.Errorf("convert env %s to int failed: %s", simontype.EnvMaxCPU, err.Error())
+		}
+		if maxcpu > 100 || maxcpu < 0 {
+			maxcpu = 100
+		}
+	}
+
+	if str := os.Getenv(simontype.EnvMaxMemory); str != "" {
+		if maxmem, err = strconv.Atoi(str); err != nil {
+			return false, "", fmt.Errorf("convert env %s to int failed: %s", simontype.EnvMaxMemory, err.Error())
+		}
+		if maxmem > 100 || maxmem < 0 {
+			maxmem = 100
+		}
+	}
+
+	if str := os.Getenv(simontype.EnvMaxVG); str != "" {
+		if maxvg, err = strconv.Atoi(str); err != nil {
+			return false, "", fmt.Errorf("convert env %s to int failed: %s", simontype.EnvMaxVG, err.Error())
+		}
+		if maxvg > 100 || maxvg < 0 {
+			maxvg = 100
+		}
+	}
+
+	totalAllocatableResource := map[corev1.ResourceName]*resource.Quantity{
+		corev1.ResourceCPU:    resource.NewQuantity(0, resource.DecimalSI),
+		corev1.ResourceMemory: resource.NewQuantity(0, resource.DecimalSI),
+	}
+	totalUsedResource := map[corev1.ResourceName]*resource.Quantity{
+		corev1.ResourceCPU:    resource.NewQuantity(0, resource.DecimalSI),
+		corev1.ResourceMemory: resource.NewQuantity(0, resource.DecimalSI),
+	}
+	totalVGResource := localcache.SharedResource{}
+	var allPods []corev1.Pod
+	for _, status := range nodeStatuses {
+		for _, pod := range status.Pods {
+			allPods = append(allPods, *pod)
+		}
+	}
+
+	for _, status := range nodeStatuses {
+		node := status.Node
+		totalAllocatableResource[corev1.ResourceCPU].Add(*node.Status.Allocatable.Cpu())
+		totalAllocatableResource[corev1.ResourceMemory].Add(*node.Status.Allocatable.Memory())
+
+		reqs, _ := utils.GetPodsTotalRequestsAndLimitsByNodeName(allPods, node.Name)
+		totalUsedResource[corev1.ResourceCPU].Add(reqs[corev1.ResourceCPU])
+		totalUsedResource[corev1.ResourceMemory].Add(reqs[corev1.ResourceMemory])
+
+		if nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]; exist {
+			var nodeStorage utils.NodeStorage
+			if err := ffjson.Unmarshal([]byte(nodeStorageStr), &nodeStorage); err != nil {
+				return false, "", fmt.Errorf("err when unmarshal json data, node is %s\n", node.Name)
+			}
+			for _, vg := range nodeStorage.VGs {
+				totalVGResource.Requested += vg.Requested
+				totalVGResource.Capacity += vg.Capacity
+			}
+		}
+	}
+
+	cpuOccupancyRate := int(float64(totalUsedResource[corev1.ResourceCPU].MilliValue()) / float64(totalAllocatableResource[corev1.ResourceCPU].MilliValue()) * 100)
+	memoryOccupancyRate := int(float64(totalUsedResource[corev1.ResourceMemory].MilliValue()) / float64(totalAllocatableResource[corev1.ResourceMemory].MilliValue()) * 100)
+	if cpuOccupancyRate > maxcpu {
+		return false, fmt.Sprintf("the average occupancy rate(%d%%) of cpu goes beyond the env setting(%d%%)\n", cpuOccupancyRate, maxcpu), nil
+	}
+	if memoryOccupancyRate > maxmem {
+		return false, fmt.Sprintf("the average occupancy rate(%d%%) of memory goes beyond the env setting(%d%%)\n", memoryOccupancyRate, maxmem), nil
+	}
+
+	if totalVGResource.Capacity != 0 {
+		vgOccupancyRate := int(float64(totalVGResource.Requested) / float64(totalVGResource.Capacity) * 100)
+		if vgOccupancyRate > maxvg {
+			return false, fmt.Sprintf("the average occupancy rate(%d%%) of vg goes beyond the env setting(%d%%)\n", vgOccupancyRate, maxvg), nil
+		}
+	}
+
+	return true, "", nil
 }

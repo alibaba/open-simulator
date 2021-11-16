@@ -5,6 +5,12 @@ import (
 	"fmt"
 	"math"
 
+	localtype "github.com/alibaba/open-local/pkg"
+	localalgorithm "github.com/alibaba/open-local/pkg/scheduler/algorithm"
+	localalgo "github.com/alibaba/open-local/pkg/scheduler/algorithm/algo"
+	localpriorities "github.com/alibaba/open-local/pkg/scheduler/algorithm/priorities"
+	simontype "github.com/alibaba/open-simulator/pkg/type"
+	"github.com/alibaba/open-simulator/pkg/utils"
 	"github.com/pquerna/ffjson/ffjson"
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -14,20 +20,11 @@ import (
 	storagev1informers "k8s.io/client-go/informers/storage/v1"
 	externalclientset "k8s.io/client-go/kubernetes"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework"
-
-	localtype "github.com/alibaba/open-local/pkg"
-	localalgorithm "github.com/alibaba/open-local/pkg/scheduler/algorithm"
-	localalgo "github.com/alibaba/open-local/pkg/scheduler/algorithm/algo"
-	localpriorities "github.com/alibaba/open-local/pkg/scheduler/algorithm/priorities"
-
-	simontype "github.com/alibaba/open-simulator/pkg/type"
-	"github.com/alibaba/open-simulator/pkg/utils"
 )
 
 // LocalPlugin is a plugin for scheduling framework
 type LocalPlugin struct {
-	schedulerName string
-	fakeclient    externalclientset.Interface
+	fakeclient externalclientset.Interface
 	// open-local need storageInformer to get sc
 	storageInformer storagev1informers.Interface
 }
@@ -37,9 +34,8 @@ var _ = framework.ScorePlugin(&LocalPlugin{})
 var _ = framework.BindPlugin(&LocalPlugin{})
 
 // NewLocalPlugin
-func NewLocalPlugin(schedulerName string, fakeclient externalclientset.Interface, storageInformers storagev1informers.Interface, configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
+func NewLocalPlugin(fakeclient externalclientset.Interface, storageInformers storagev1informers.Interface, configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
 	return &LocalPlugin{
-		schedulerName:   schedulerName,
 		storageInformer: storageInformers,
 		fakeclient:      fakeclient,
 	}, nil
@@ -93,7 +89,6 @@ func (plugin *LocalPlugin) Score(ctx context.Context, state *framework.CycleStat
 	// check if the pod needs storage resources
 	nodeExist, podExist := true, true
 	lvmPVCs, devicePVCs := utils.GetPodLocalPVCs(pod)
-	log.Debugf("score lvmPVCs %d, devicePVCs %d\n", len(lvmPVCs), len(devicePVCs))
 	if len(lvmPVCs)+len(devicePVCs) == 0 {
 		podExist = false
 	}
