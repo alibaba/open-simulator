@@ -196,11 +196,9 @@ func (sim *Simulator) Report() {
 		"Node",
 		"Pod",
 		"CPU Requests",
-		"CPU Limits",
 		"Memory Requests",
-		"Memory Limits",
 		"Volume Requests",
-		"New Pod",
+		"App Name",
 	})
 
 	nodes, _ := sim.fakeclient.CoreV1().Nodes().List(sim.ctx, metav1.ListOptions{})
@@ -216,14 +214,14 @@ func (sim *Simulator) Report() {
 				continue
 			}
 			req, limit := resourcehelper.PodRequestsAndLimits(&pod)
-			cpuReq, cpuLimit, memoryReq, memoryLimit := req[corev1.ResourceCPU], limit[corev1.ResourceCPU], req[corev1.ResourceMemory], limit[corev1.ResourceMemory]
+			cpuReq, _, memoryReq, _ := req[corev1.ResourceCPU], limit[corev1.ResourceCPU], req[corev1.ResourceMemory], limit[corev1.ResourceMemory]
 			fractionCpuReq := float64(cpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
-			fractionCpuLimit := float64(cpuLimit.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
 			fractionMemoryReq := float64(memoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
-			fractionMemoryLimit := float64(memoryLimit.Value()) / float64(allocatable.Memory().Value()) * 100
-			newPod := ""
-			if _, exist := pod.Labels[simontype.LabelNewPod]; exist {
-				newPod = "√"
+
+			// app name
+			appname := ""
+			if str, exist := pod.Labels[simontype.LabelAppName]; exist {
+				appname = str
 			}
 
 			// Storage
@@ -243,11 +241,9 @@ func (sim *Simulator) Report() {
 				node.Name,
 				fmt.Sprintf("%s/%s", pod.Namespace, pod.Name),
 				fmt.Sprintf("%s(%d%%)", cpuReq.String(), int64(fractionCpuReq)),
-				fmt.Sprintf("%s(%d%%)", cpuLimit.String(), int64(fractionCpuLimit)),
 				fmt.Sprintf("%s(%d%%)", memoryReq.String(), int64(fractionMemoryReq)),
-				fmt.Sprintf("%s(%d%%)", memoryLimit.String(), int64(fractionMemoryLimit)),
 				podVolumeStr,
-				newPod,
+				appname,
 			}
 			podTable.Append(data)
 		}
@@ -266,23 +262,19 @@ func (sim *Simulator) Report() {
 		"Node",
 		"CPU Allocatable",
 		"CPU Requests",
-		"CPU Limits",
 		"Memory Allocatable",
 		"Memory Requests",
-		"Memory Limits",
 		"Pod Count",
 		"New Node",
 	})
 
 	for _, node := range nodes.Items {
 		reqs, limits := utils.GetPodsTotalRequestsAndLimitsByNodeName(allPods.Items, node.Name)
-		nodeCpuReq, nodeCpuLimit, nodeMemoryReq, nodeMemoryLimit, _, _ :=
+		nodeCpuReq, _, nodeMemoryReq, _, _, _ :=
 			reqs[corev1.ResourceCPU], limits[corev1.ResourceCPU], reqs[corev1.ResourceMemory], limits[corev1.ResourceMemory], reqs[corev1.ResourceEphemeralStorage], limits[corev1.ResourceEphemeralStorage]
 		allocatable := node.Status.Allocatable
 		nodeFractionCpuReq := float64(nodeCpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
-		nodeFractionCpuLimit := float64(nodeCpuLimit.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
 		nodeFractionMemoryReq := float64(nodeMemoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
-		nodeFractionMemoryLimit := float64(nodeMemoryLimit.Value()) / float64(allocatable.Memory().Value()) * 100
 		newNode := ""
 		if _, exist := node.Labels[simontype.LabelNewNode]; exist {
 			newNode = "√"
@@ -292,10 +284,8 @@ func (sim *Simulator) Report() {
 			node.Name,
 			allocatable.Cpu().String(),
 			fmt.Sprintf("%s(%d%%)", nodeCpuReq.String(), int64(nodeFractionCpuReq)),
-			fmt.Sprintf("%s(%d%%)", nodeCpuLimit.String(), int64(nodeFractionCpuLimit)),
 			allocatable.Memory().String(),
 			fmt.Sprintf("%s(%d%%)", nodeMemoryReq.String(), int64(nodeFractionMemoryReq)),
-			fmt.Sprintf("%s(%d%%)", nodeMemoryLimit.String(), int64(nodeFractionMemoryLimit)),
 			fmt.Sprintf("%d", utils.CountPodOnTheNode(allPods, node.Name)),
 			newNode,
 		}
@@ -308,13 +298,13 @@ func (sim *Simulator) Report() {
 
 	// Step 3: report node storage info
 	fmt.Println("Node Storage Info")
-	fmt.Println("Storage is Open-Local")
 	nodeStorageTable := tablewriter.NewWriter(os.Stdout)
 	nodeStorageTable.SetHeader([]string{
 		"Node",
-		"Kind",
-		"ALLOCATABLE",
-		"REQUESTS",
+		"Storage Kind",
+		"Storage Name",
+		"Storage Allocatable",
+		"Storage Requests",
 	})
 	for _, node := range nodes.Items {
 		if nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]; exist {
@@ -330,6 +320,7 @@ func (sim *Simulator) Report() {
 				storageData = []string{
 					node.Name,
 					"VG",
+					vg.Name,
 					capacity.String(),
 					fmt.Sprintf("%s(%d%%)", request.String(), int64(float64(vg.Requested)/float64(vg.Capacity)*100)),
 				}
@@ -345,6 +336,7 @@ func (sim *Simulator) Report() {
 				storageData = []string{
 					node.Name,
 					"Device",
+					device.Device,
 					capacity.String(),
 					used,
 				}
@@ -721,11 +713,6 @@ func (sim *Simulator) GenerateValidDaemonPodsForNewNode() []*corev1.Pod {
 	for _, item := range daemonsets.Items {
 		newItem := item
 		pods = append(pods, utils.MakeValidPodsByDaemonset(&newItem, fakeNodes)...)
-	}
-
-	// set label
-	for _, pod := range pods {
-		metav1.SetMetaDataLabel(&pod.ObjectMeta, simontype.LabelNewPod, "")
 	}
 
 	return pods

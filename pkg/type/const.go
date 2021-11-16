@@ -23,7 +23,7 @@ const (
 
 	LabelDaemonSetFromCluster = "simon/daemonset-from-cluster"
 	LabelNewNode              = "simon/new-node"
-	LabelNewPod               = "simon/new-pod"
+	LabelAppName              = "simon/app-name"
 
 	WorkloadKindDeployment  = "Deployment"
 	WorkloadKindStatefulSet = "StatefulSet"
