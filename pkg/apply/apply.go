@@ -126,11 +126,11 @@ func (applier *DefaultApplier) Run() (err error) {
 
 	// Step 6: get result
 	for i := 0; i < 100; i++ {
-		f := func() (error, bool) {
+		f := func() (bool, error) {
 			// init simulator
 			sim, err := simulator.New(kubeClient, cc)
 			if err != nil {
-				return err, false
+				return false, err
 			}
 			defer sim.Close()
 
@@ -139,12 +139,12 @@ func (applier *DefaultApplier) Run() (err error) {
 
 			// synchronize resources from real or simulated cluster to fake cluster
 			if err := sim.CreateFakeCluster(applier.cluster.CustomCluster); err != nil {
-				return fmt.Errorf("create fake cluster failed: %s", err.Error()), false
+				return false, fmt.Errorf("create fake cluster failed: %s", err.Error())
 			}
 
 			// add nodes to get a successful scheduling
 			if err := sim.AddNewNode(newNode, i); err != nil {
-				return err, false
+				return false, err
 			}
 
 			// success: to determine whether the current resource is successfully scheduled
@@ -187,10 +187,13 @@ func (applier *DefaultApplier) Run() (err error) {
 					fmt.Printf(utils.ColorRed+"%s: %s\n"+utils.ColorReset, name, err.Error())
 					break
 				} else {
-					if fit, failedReason := sim.DoesClusterMeetRequirements(); !fit {
-						fmt.Printf(utils.ColorRed+"the node %s does not meet requirements: %s\n"+utils.ColorReset, newNode.Name, failedReason)
-						return nil, false
+					if os.Getenv(simontype.EnvMaxCPU) != "" || os.Getenv(simontype.EnvMaxMemory) != "" || os.Getenv(simontype.EnvMaxVG) != "" {
+						if satisfaction, dissatisfiedSetting := sim.SatisfyResourceSetting(); !satisfaction {
+							fmt.Printf(utils.ColorRed+"the average occupancy rate of current cluster is dissatisfied the env setting: %s\n"+utils.ColorReset, dissatisfiedSetting)
+							return false, nil
+						}
 					}
+
 					success = true
 					fmt.Printf(utils.ColorGreen+"%s: Success!\n"+utils.ColorReset, name)
 				}
@@ -199,12 +202,12 @@ func (applier *DefaultApplier) Run() (err error) {
 				fmt.Println(utils.ColorGreen)
 				sim.Report()
 				fmt.Println(utils.ColorReset)
-				return nil, true
+				return true, nil
 			}
-			return nil, false
+			return false, nil
 		}
 
-		err, success := f()
+		success, err := f()
 		if err != nil {
 			return err
 		}
