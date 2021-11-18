@@ -13,7 +13,7 @@ var options = applypkg.Options{}
 
 var ApplyCmd = &cobra.Command{
 	Use:   "apply",
-	Short: "Apply a configuration to a resource by filename or stdin.",
+	Short: "Make a reasonable cluster capacity planning based on application resource requirements",
 	Run: func(cmd *cobra.Command, args []string) {
 		applier := applypkg.NewApplier(options)
 		if err := applier.Run(); err != nil {
