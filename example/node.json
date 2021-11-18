@@ -2,8 +2,7 @@
     "vgs": [
         {
             "name": "yoda-pool",
-            "capacity": "53687091200",
-            "requested": "0"
+            "capacity": "536870912000"
         }
     ],
     "devices": [

@@ -2,7 +2,6 @@ package utils
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -21,25 +20,20 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/api/policy/v1beta1"
-	v1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/uuid"
-	fakeclientset "k8s.io/client-go/kubernetes/fake"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
+	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/events"
 	resourcehelper "k8s.io/kubectl/pkg/util/resource"
-	schedconfig "k8s.io/kubernetes/cmd/kube-scheduler/app/config"
-	schedoptions "k8s.io/kubernetes/cmd/kube-scheduler/app/options"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	apiv1 "k8s.io/kubernetes/pkg/apis/core/v1"
 	"k8s.io/kubernetes/pkg/apis/core/validation"
 	"k8s.io/kubernetes/pkg/controller"
 	"k8s.io/kubernetes/pkg/controller/daemon"
-	"k8s.io/kubernetes/pkg/scheduler/profile"
 )
 
 // ParseFilePath converts recursively directory path to a slice of file paths
@@ -71,55 +65,6 @@ func ParseFilePath(path string) (filePaths []string, err error) {
 	}
 
 	return filePaths, nil
-}
-
-// GetObjectsFromFiles converts yml or yaml file to kubernetes resources
-func GetObjectsFromFiles(filePaths []string) (simontype.ResourceTypes, error) {
-	var resources simontype.ResourceTypes
-
-	for _, f := range filePaths {
-		objects := DecodeYamlFile(f)
-		for _, obj := range objects {
-			switch o := obj.(type) {
-			//case nil:
-			//	continue
-			case *corev1.Node:
-				resources.Nodes = append(resources.Nodes, o)
-				storageFile := fmt.Sprintf("%s.json", strings.TrimSuffix(f, filepath.Ext(f)))
-				if err := AddLocalStorageInfoInNode(o, storageFile); err != nil && !errors.Is(err, os.ErrNotExist) {
-					return resources, err
-				}
-			case *corev1.Pod:
-				resources.Pods = append(resources.Pods, o)
-			case *apps.DaemonSet:
-				resources.DaemonSets = append(resources.DaemonSets, o)
-			case *apps.StatefulSet:
-				resources.StatefulSets = append(resources.StatefulSets, o)
-			case *apps.Deployment:
-				resources.Deployments = append(resources.Deployments, o)
-			case *corev1.Service:
-				resources.Services = append(resources.Services, o)
-			case *corev1.PersistentVolumeClaim:
-				resources.PersistentVolumeClaims = append(resources.PersistentVolumeClaims, o)
-			case *corev1.ReplicationController:
-				resources.ReplicationControllers = append(resources.ReplicationControllers, o)
-			case *apps.ReplicaSet:
-				resources.ReplicaSets = append(resources.ReplicaSets, o)
-			case *batchv1.Job:
-				resources.Jobs = append(resources.Jobs, o)
-			case *batchv1beta1.CronJob:
-				resources.CronJobs = append(resources.CronJobs, o)
-			case *v1.StorageClass:
-				resources.StorageClasss = append(resources.StorageClasss, o)
-			case *v1beta1.PodDisruptionBudget:
-				resources.PodDisruptionBudgets = append(resources.PodDisruptionBudgets, o)
-			default:
-				fmt.Printf("unknown type: %T\n", o)
-				continue
-			}
-		}
-	}
-	return resources, nil
 }
 
 // DecodeYamlFile captures the yml or yaml file, and decodes it
@@ -160,91 +105,6 @@ func ReadJsonFile(file string) (string, error) {
 		return "", fmt.Errorf("valid json file %s failed", file)
 	}
 	return string(plan), nil
-}
-
-func AddLocalStorageInfoInNode(node *corev1.Node, jsonfile string) error {
-	info, err := ReadJsonFile(jsonfile)
-	if err != nil {
-		return err
-	}
-	if info != "" {
-		metav1.SetMetaDataAnnotation(&node.ObjectMeta, simontype.AnnoNodeLocalStorage, info)
-	}
-	return nil
-}
-
-func GetMasterFromKubeConfig(filename string) (string, error) {
-	config, err := clientcmd.LoadFromFile(filename)
-	if err != nil {
-		return "", fmt.Errorf("can not load kubeconfig file: %v", err)
-	}
-
-	context, ok := config.Contexts[config.CurrentContext]
-	if !ok {
-		return "", fmt.Errorf("Failed to get master address from kubeconfig")
-	}
-
-	if val, ok := config.Clusters[context.Cluster]; ok {
-		return val.Server, nil
-	}
-	return "", fmt.Errorf("Failed to get master address from kubeconfig")
-}
-
-func InitKubeSchedulerConfiguration(opts *schedoptions.Options) (*schedconfig.CompletedConfig, error) {
-	c := &schedconfig.Config{}
-	// clear out all unnecessary options so no port is bound
-	// to allow running multiple instances in a row
-	opts.Deprecated = nil
-	opts.CombinedInsecureServing = nil
-	opts.SecureServing = nil
-	if err := opts.ApplyTo(c); err != nil {
-		return nil, fmt.Errorf("unable to get scheduler config: %v", err)
-	}
-
-	// Get the completed config
-	cc := c.Complete()
-
-	// completely ignore the events
-	cc.EventBroadcaster = events.NewEventBroadcasterAdapter(fakeclientset.NewSimpleClientset())
-
-	return &cc, nil
-}
-
-func GetRecorderFactory(cc *schedconfig.CompletedConfig) profile.RecorderFactory {
-	return func(name string) events.EventRecorder {
-		return cc.EventBroadcaster.NewRecorder(name)
-	}
-}
-
-// GetValidPodExcludeDaemonSet gets valid pod by resources exclude DaemonSet that needs to be handled specially
-func GetValidPodExcludeDaemonSet(resources *simontype.ResourceTypes) []*corev1.Pod {
-	var pods []*corev1.Pod = make([]*corev1.Pod, 0)
-	//get valid pods by pods
-	for _, item := range resources.Pods {
-		pods = append(pods, MakeValidPodByPod(item))
-	}
-
-	// get all pods from deployment
-	for _, deploy := range resources.Deployments {
-		pods = append(pods, MakeValidPodsByDeployment(deploy)...)
-	}
-
-	// get all pods from statefulset
-	for _, sts := range resources.StatefulSets {
-		pods = append(pods, MakeValidPodsByStatefulSet(sts)...)
-	}
-
-	// get all pods from job
-	for _, job := range resources.Jobs {
-		pods = append(pods, MakeValidPodByJob(job)...)
-	}
-
-	// get all pods from cronjob
-	for _, cronjob := range resources.CronJobs {
-		pods = append(pods, MakeValidPodByCronJob(cronjob)...)
-	}
-
-	return pods
 }
 
 func MakeValidPodsByDeployment(deploy *apps.Deployment) []*corev1.Pod {
@@ -667,17 +527,6 @@ func GetPodsTotalRequestsAndLimitsByNodeName(pods []corev1.Pod, nodeName string)
 	return reqs, limits
 }
 
-// CountPodOnTheNode get pods count by node name
-func CountPodOnTheNode(podList *corev1.PodList, nodeName string) (count int64) {
-	count = 0
-	for _, pod := range podList.Items {
-		if pod.Spec.NodeName == nodeName {
-			count++
-		}
-	}
-	return
-}
-
 func AdjustWorkloads(workloads map[string][]string) {
 	if workloads == nil {
 		return
@@ -785,7 +634,7 @@ func GetConfirmResult(str string) bool {
 	return regexp.MustCompile("^(?i:y(?:es)?)$").MatchString(str)
 }
 
-func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []apps.DaemonSet) bool {
+func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*apps.DaemonSet) bool {
 	totalResource := map[corev1.ResourceName]*resource.Quantity{
 		corev1.ResourceCPU:    resource.NewQuantity(0, resource.DecimalSI),
 		corev1.ResourceMemory: resource.NewQuantity(0, resource.DecimalSI),
@@ -793,7 +642,7 @@ func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []apps.
 
 	for _, item := range daemonSets {
 		newItem := item
-		daemonPod := NewDaemonPod(&newItem, simontype.NewNodeNamePrefix)
+		daemonPod := NewDaemonPod(newItem, simontype.NewNodeNamePrefix)
 		if NodeShouldRunPod(node, daemonPod) {
 			for _, container := range daemonPod.Spec.Containers {
 				totalResource[corev1.ResourceCPU].Add(*container.Resources.Requests.Cpu())
@@ -812,4 +661,45 @@ func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []apps.
 	}
 
 	return true
+}
+
+func CreateKubeClient(kubeconfig string) (*clientset.Clientset, error) {
+	if len(kubeconfig) == 0 {
+		return nil, nil
+	}
+
+	var err error
+	var cfg *restclient.Config
+	master, err := GetMasterFromKubeConfig(kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to parse kubeclient file: %v ", err)
+	}
+
+	cfg, err = clientcmd.BuildConfigFromFlags(master, kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to build config: %v ", err)
+	}
+
+	kubeClient, err := clientset.NewForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return kubeClient, nil
+}
+
+func GetMasterFromKubeConfig(filename string) (string, error) {
+	config, err := clientcmd.LoadFromFile(filename)
+	if err != nil {
+		return "", fmt.Errorf("can not load kubeconfig file: %v", err)
+	}
+
+	context, ok := config.Contexts[config.CurrentContext]
+	if !ok {
+		return "", fmt.Errorf("Failed to get master address from kubeconfig")
+	}
+
+	if val, ok := config.Clusters[context.Cluster]; ok {
+		return val.Server, nil
+	}
+	return "", fmt.Errorf("Failed to get master address from kubeconfig")
 }

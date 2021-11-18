@@ -89,6 +89,8 @@ github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf/go.mod h1:ybxpYRF
 github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
 github.com/alibaba/open-local v0.2.4-0.20211108031201-b31116301645 h1:Tnw/Wz3BW9HHNGHSe3DRCAIL1AmuhWIaz3nDhU5StDc=
 github.com/alibaba/open-local v0.2.4-0.20211108031201-b31116301645/go.mod h1:8Z8oqLQUx4Uh/XGOt1SzakONUuYfsVFWA3J+u0SxEQo=
+github.com/alibaba/open-local v0.2.4-0.20211118031547-952eadbb4a8e h1:CGzCy9vdX1Wk9kiEn6UvFVs7cBfhw6a2TuIJZbWmzoU=
+github.com/alibaba/open-local v0.2.4-0.20211118031547-952eadbb4a8e/go.mod h1:8Z8oqLQUx4Uh/XGOt1SzakONUuYfsVFWA3J+u0SxEQo=
 github.com/andreyvit/diff v0.0.0-20170406064948-c7f18ee00883/go.mod h1:rCTlJbsFo29Kk6CurOXKm700vrz8f0KW0JNfpkRJY/8=
 github.com/apache/thrift v0.0.0-20181217171848-56ac72e74ae3/go.mod h1:cp2SuWMxlEZw2r+iP2GNCdIi4C1qmUzdZFSVb+bacwQ=
 github.com/apache/thrift v0.12.0/go.mod h1:cp2SuWMxlEZw2r+iP2GNCdIi4C1qmUzdZFSVb+bacwQ=

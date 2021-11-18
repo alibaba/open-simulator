@@ -13,7 +13,8 @@ const (
 
 	StopReasonSuccess   = "everything is ok"
 	StopReasonDoNotStop = "do not stop"
-	CreateError         = "failed to create pod"
+	CreatePodError      = "failed to create pod"
+	DeletePodError      = "failed to delete pod"
 
 	AnnoWorkloadKind      = "simon/workload-kind"
 	AnnoWorkloadName      = "simon/workload-name"
