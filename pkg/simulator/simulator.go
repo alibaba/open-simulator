@@ -172,10 +172,10 @@ func (sim *Simulator) RunCluster(cluster ResourceTypes) (*SimulateResult, error)
 func (sim *Simulator) ScheduleApp(apps AppResource) (*SimulateResult, error) {
 	// 由 AppResource 生成 Pods
 	appPods := GenerateValidPodsFromAppResources(sim.fakeclient, apps.Name, apps.Resource)
-	greed := algo.NewAffinityQueue(appPods)
-	sort.Sort(greed)
-	toleration := algo.NewTolerationQueue(appPods)
-	sort.Sort(toleration)
+	affinityPriority := algo.NewAffinityQueue(appPods)
+	sort.Sort(affinityPriority)
+	tolerationPriority := algo.NewTolerationQueue(appPods)
+	sort.Sort(tolerationPriority)
 	failedPod, err := sim.schedulePods(appPods)
 	if err != nil {
 		return nil, err
@@ -322,8 +322,14 @@ func (sim *Simulator) syncClusterResourceList(resourceList ResourceTypes) error 
 	}
 
 	// sync pods
-	if _, err := sim.schedulePods(resourceList.Pods); err != nil {
+	if failedPods, err := sim.schedulePods(resourceList.Pods); err != nil {
 		return err
+	} else if len(failedPods) != 0 {
+		fmt.Printf(utils.ColorRed + "failed to schedule pods\n" + utils.ColorReset)
+		for _, failedPod := range failedPods {
+			fmt.Printf(utils.ColorRed+"%s\n"+utils.ColorReset, failedPod.Reason)
+		}
+		return fmt.Errorf("Cluster Error! ")
 	}
 
 	return nil
