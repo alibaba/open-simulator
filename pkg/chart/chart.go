@@ -3,39 +3,38 @@ package chart
 import (
 	"bytes"
 	"fmt"
+	"path"
+	"strings"
+
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/chartutil"
 	"helm.sh/helm/v3/pkg/engine"
 	"helm.sh/helm/v3/pkg/releaseutil"
-	"os"
-	"path"
-	"path/filepath"
-	"strings"
 )
 
 // ProcessChart parses chart to /tmp/charts
-func ProcessChart(name string, chartPath string) (string, error) {
+func ProcessChart(name string, chartPath string) ([]string, error) {
 	chartRequested, err := loader.Load(chartPath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	chartRequested.Metadata.Name = name
 
 	if err := checkIfInstallable(chartRequested); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// TODO
 	var vals map[string]interface{}
 	if err := chartutil.ProcessDependencies(chartRequested, vals); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	valuesToRender, err := ToRenderValues(chartRequested, vals)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	return renderResources(chartRequested, valuesToRender, true)
@@ -78,10 +77,10 @@ func ToRenderValues(chrt *chart.Chart, chrtVals map[string]interface{}) (chartut
 	return top, nil
 }
 
-func renderResources(ch *chart.Chart, values chartutil.Values, subNotes bool) (string, error) {
+func renderResources(ch *chart.Chart, values chartutil.Values, subNotes bool) ([]string, error) {
 	files, err := engine.Render(ch, values)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// NOTES.txt gets rendered like all the other files, but because it's not a hook nor a resource,
@@ -106,70 +105,14 @@ func renderResources(ch *chart.Chart, values chartutil.Values, subNotes bool) (s
 	// Sort hooks, manifests, and partials. Only hooks and manifests are returned,
 	// as partials are not used after renderer.Render. Empty manifests are also
 	// removed here.
+	var yamlStr []string
 	_, manifests, err := releaseutil.SortManifests(files, []string{}, releaseutil.InstallOrder)
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+	for _, item := range manifests {
+		yamlStr = append(yamlStr, item.Content)
 	}
 
-	// fileWritten stores a written file so that we can recognize whether the same named file has been written .
-	// if it exists, we rename it and create it by new name. It ensures that one file only contains one
-	// kubernetes resource object.
-	outputDir := path.Join(simontype.DirectoryForChart, ch.Name())
-	fileWritten := make(map[string]bool)
-	for _, m := range manifests {
-		newName := path.Base(m.Name)
-		for i := 1; i < 100; i++ {
-			if _, exist := fileWritten[newName]; exist {
-				newName = strings.Replace(path.Base(m.Name), ".y", fmt.Sprintf("-%d.y", i), 1)
-				continue
-			}
-			fileWritten[newName] = true
-			break
-		}
-		err = writeToFile(outputDir, newName, m.Content)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	return outputDir, nil
-}
-
-// writeToFile write the <data> to <output-dir>/<name>. if the file exists, we cover it.
-func writeToFile(outputDir string, name string, data string) error {
-	outfileName := strings.Join([]string{outputDir, name}, string(filepath.Separator))
-
-	err := ensureDirectoryForFile(outfileName)
-	if err != nil {
-		return err
-	}
-
-	f, err := createFile(outfileName)
-	if err != nil {
-		return err
-	}
-
-	defer f.Close()
-
-	_, err = f.WriteString(fmt.Sprintf("%s\n", data))
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func createFile(filename string) (*os.File, error) {
-	return os.Create(filename)
-}
-
-// check if the directory exists to create file. creates if don't exists
-func ensureDirectoryForFile(file string) error {
-	baseDir := path.Dir(file)
-	_, err := os.Stat(baseDir)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	return os.MkdirAll(baseDir, simontype.DefaultDirectoryPermission)
+	return yamlStr, nil
 }
