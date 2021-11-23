@@ -109,10 +109,7 @@ func New(opts ...Option) (Interface, error) {
 				UpdateFunc: func(oldObj, newObj interface{}) {
 					if pod, ok := newObj.(*corev1.Pod); ok {
 						// fmt.Printf("test update pod %s/%s\n", pod.Namespace, pod.Name)
-						if err := sim.update(pod); err != nil {
-							fmt.Printf("update error: %s\n", err.Error())
-							return
-						}
+						sim.update(pod)
 					}
 				},
 			},
@@ -159,23 +156,16 @@ func (sim *Simulator) RunCluster(cluster ResourceTypes) (*SimulateResult, error)
 	// start scheduler
 	sim.runScheduler()
 
-	if err := sim.syncClusterResourceList(cluster); err != nil {
-		return nil, fmt.Errorf("Create Cluster failed: %s", err.Error())
-	}
-
-	return &SimulateResult{
-		NodeStatus:      sim.getClusterNodeStatus(),
-		UnscheduledPods: nil,
-	}, nil
+	return sim.syncClusterResourceList(cluster)
 }
 
 func (sim *Simulator) ScheduleApp(apps AppResource) (*SimulateResult, error) {
 	// 由 AppResource 生成 Pods
 	appPods := GenerateValidPodsFromAppResources(sim.fakeclient, apps.Name, apps.Resource)
-	greed := algo.NewAffinityQueue(appPods)
-	sort.Sort(greed)
-	toleration := algo.NewTolerationQueue(appPods)
-	sort.Sort(toleration)
+	affinityPriority := algo.NewAffinityQueue(appPods)
+	sort.Sort(affinityPriority)
+	tolerationPriority := algo.NewTolerationQueue(appPods)
+	sort.Sort(tolerationPriority)
 	failedPod, err := sim.schedulePods(appPods)
 	if err != nil {
 		return nil, err
@@ -250,86 +240,90 @@ func (sim *Simulator) Close() {
 	close(sim.simulatorStop)
 }
 
-func (sim *Simulator) syncClusterResourceList(resourceList ResourceTypes) error {
+func (sim *Simulator) syncClusterResourceList(resourceList ResourceTypes) (*SimulateResult, error) {
 	//sync node
 	for _, item := range resourceList.Nodes {
 		if _, err := sim.fakeclient.CoreV1().Nodes().Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("unable to copy node: %v", err)
+			return nil, fmt.Errorf("unable to copy node: %v", err)
 		}
 	}
 
 	//sync pdb
 	for _, item := range resourceList.PodDisruptionBudgets {
 		if _, err := sim.fakeclient.PolicyV1beta1().PodDisruptionBudgets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("unable to copy PDB: %v", err)
+			return nil, fmt.Errorf("unable to copy PDB: %v", err)
 		}
 	}
 
 	//sync svc
 	for _, item := range resourceList.Services {
 		if _, err := sim.fakeclient.CoreV1().Services(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("unable to copy service: %v", err)
+			return nil, fmt.Errorf("unable to copy service: %v", err)
 		}
 	}
 
 	//sync storage class
 	for _, item := range resourceList.StorageClasss {
 		if _, err := sim.fakeclient.StorageV1().StorageClasses().Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("unable to copy storage class: %v", err)
+			return nil, fmt.Errorf("unable to copy storage class: %v", err)
 		}
 	}
 
 	//sync pvc
 	for _, item := range resourceList.PersistentVolumeClaims {
 		if _, err := sim.fakeclient.CoreV1().PersistentVolumeClaims(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("unable to copy pvc: %v", err)
+			return nil, fmt.Errorf("unable to copy pvc: %v", err)
 		}
 	}
 
 	//sync rc
 	for _, item := range resourceList.ReplicationControllers {
 		if _, err := sim.fakeclient.CoreV1().ReplicationControllers(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("unable to copy RC: %v", err)
+			return nil, fmt.Errorf("unable to copy RC: %v", err)
 		}
 	}
 
 	//sync deployment
 	for _, item := range resourceList.Deployments {
 		if _, err := sim.fakeclient.AppsV1().Deployments(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("unable to copy deployment: %v", err)
+			return nil, fmt.Errorf("unable to copy deployment: %v", err)
 		}
 	}
 
 	//sync rs
 	for _, item := range resourceList.ReplicaSets {
 		if _, err := sim.fakeclient.AppsV1().ReplicaSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("unable to copy replica set: %v", err)
+			return nil, fmt.Errorf("unable to copy replica set: %v", err)
 		}
 	}
 
 	//sync statefulset
 	for _, item := range resourceList.StatefulSets {
 		if _, err := sim.fakeclient.AppsV1().StatefulSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("unable to copy stateful set: %v", err)
+			return nil, fmt.Errorf("unable to copy stateful set: %v", err)
 		}
 	}
 
 	//sync daemonset
 	for _, item := range resourceList.DaemonSets {
 		if _, err := sim.fakeclient.AppsV1().DaemonSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("unable to copy daemon set: %v", err)
+			return nil, fmt.Errorf("unable to copy daemon set: %v", err)
 		}
 	}
 
 	// sync pods
-	if _, err := sim.schedulePods(resourceList.Pods); err != nil {
-		return err
+	failedPods, err := sim.schedulePods(resourceList.Pods)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil
+	return &SimulateResult{
+		UnscheduledPods: failedPods,
+		NodeStatus:      sim.getClusterNodeStatus(),
+	}, nil
 }
 
-func (sim *Simulator) update(pod *corev1.Pod) error {
+func (sim *Simulator) update(pod *corev1.Pod) {
 	var stop bool = false
 	var stopReason string
 	var stopMessage string
@@ -348,8 +342,6 @@ func (sim *Simulator) update(pod *corev1.Pod) error {
 		sim.status.stopReason = fmt.Sprintf("failed to schedule pod (%s/%s): %s: %s", pod.Namespace, pod.Name, stopReason, stopMessage)
 	}
 	sim.simulatorStop <- struct{}{}
-
-	return nil
 }
 
 // WithKubeConfig sets kubeconfig for Simulator, the default value is ""

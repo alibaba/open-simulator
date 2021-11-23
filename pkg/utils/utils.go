@@ -344,12 +344,13 @@ func NodeShouldRunPod(node *corev1.Node, pod *corev1.Pod) bool {
 }
 
 func NewDaemonPod(ds *apps.DaemonSet, nodeName string) *corev1.Pod {
+
 	pod, _ := controller.GetPodFromTemplate(&ds.Spec.Template, ds, nil)
 	pod.ObjectMeta.Name = fmt.Sprintf("daemonset-%s-%s", ds.Name, nodeName)
 	pod.ObjectMeta.Namespace = ds.Namespace
+	pod.Spec.Affinity = SetDaemonSetPodNodeNameByNodeAffinity(pod.Spec.Affinity, nodeName)
 	pod = MakePodValid(pod)
 	pod = AddWorkloadInfoToPod(pod, simontype.WorkloadKindDaemonSet, ds.Name, pod.Namespace)
-	pod.Spec.NodeName = nodeName
 	return pod
 }
 
@@ -635,6 +636,7 @@ func GetConfirmResult(str string) bool {
 }
 
 func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*apps.DaemonSet) bool {
+	// CPU and Memory
 	totalResource := map[corev1.ResourceName]*resource.Quantity{
 		corev1.ResourceCPU:    resource.NewQuantity(0, resource.DecimalSI),
 		corev1.ResourceMemory: resource.NewQuantity(0, resource.DecimalSI),
@@ -660,7 +662,21 @@ func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*apps
 		return false
 	}
 
-	return true
+	// Local Storage
+	nodeStorage := GetNodeStorage(node)
+	var nodeVGMax int64 = 0
+	for _, vg := range nodeStorage.VGs {
+		if vg.Capacity > int64(nodeVGMax) {
+			nodeVGMax = vg.Capacity
+		}
+	}
+	lvmPVCs, _ := GetPodLocalPVCs(pod)
+	var pvcSum int64 = 0
+	for _, pvc := range lvmPVCs {
+		pvcSum += localutils.GetPVCRequested(pvc)
+	}
+
+	return pvcSum <= nodeVGMax
 }
 
 func CreateKubeClient(kubeconfig string) (*clientset.Clientset, error) {
@@ -702,4 +718,51 @@ func GetMasterFromKubeConfig(filename string) (string, error) {
 		return val.Server, nil
 	}
 	return "", fmt.Errorf("Failed to get master address from kubeconfig")
+}
+
+func SetDaemonSetPodNodeNameByNodeAffinity(affinity *corev1.Affinity, nodename string) *corev1.Affinity {
+	nodeSelReq := corev1.NodeSelectorRequirement{
+		Key:      api.ObjectNameField,
+		Operator: corev1.NodeSelectorOpIn,
+		Values:   []string{nodename},
+	}
+
+	nodeSelector := &corev1.NodeSelector{
+		NodeSelectorTerms: []corev1.NodeSelectorTerm{
+			{
+				MatchFields: []corev1.NodeSelectorRequirement{nodeSelReq},
+			},
+		},
+	}
+
+	if affinity == nil {
+		return &corev1.Affinity{
+			NodeAffinity: &corev1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: nodeSelector,
+			},
+		}
+	}
+
+	if affinity.NodeAffinity == nil {
+		affinity.NodeAffinity = &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: nodeSelector,
+		}
+		return affinity
+	}
+
+	if affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+		affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = nodeSelector
+		return affinity
+	}
+
+	// Replace node selector with the new one.
+
+	nodeSelectorTerms := affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+	for i, item := range nodeSelectorTerms {
+		item.MatchFields = []corev1.NodeSelectorRequirement{nodeSelReq}
+		nodeSelectorTerms[i] = item
+	}
+	affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = nodeSelectorTerms
+
+	return affinity
 }
