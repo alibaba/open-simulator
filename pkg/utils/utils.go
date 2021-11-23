@@ -636,6 +636,7 @@ func GetConfirmResult(str string) bool {
 }
 
 func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*apps.DaemonSet) bool {
+	// CPU and Memory
 	totalResource := map[corev1.ResourceName]*resource.Quantity{
 		corev1.ResourceCPU:    resource.NewQuantity(0, resource.DecimalSI),
 		corev1.ResourceMemory: resource.NewQuantity(0, resource.DecimalSI),
@@ -661,7 +662,21 @@ func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*apps
 		return false
 	}
 
-	return true
+	// Local Storage
+	nodeStorage := GetNodeStorage(node)
+	var nodeVGMax int64 = 0
+	for _, vg := range nodeStorage.VGs {
+		if vg.Capacity > int64(nodeVGMax) {
+			nodeVGMax = vg.Capacity
+		}
+	}
+	lvmPVCs, _ := GetPodLocalPVCs(pod)
+	var pvcSum int64 = 0
+	for _, pvc := range lvmPVCs {
+		pvcSum += localutils.GetPVCRequested(pvc)
+	}
+
+	return pvcSum <= nodeVGMax
 }
 
 func CreateKubeClient(kubeconfig string) (*clientset.Clientset, error) {

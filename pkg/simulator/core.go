@@ -66,14 +66,15 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 	}
 	defer sim.Close()
 
+	var failedPods []UnscheduledPod
 	// run cluster
 	result, err := sim.RunCluster(cluster)
 	if err != nil {
 		return nil, err
 	}
+	failedPods = append(failedPods, result.UnscheduledPods...)
 
 	// schedule pods
-	var failedPods []UnscheduledPod
 	for _, app := range apps {
 		result, err = sim.ScheduleApp(app)
 		if err != nil {
