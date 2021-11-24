@@ -2,9 +2,7 @@ package simulator
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -62,67 +60,9 @@ func GenerateValidPodsFromAppResources(client externalclientset.Interface, appna
 	return pods
 }
 
-// GetObjectsFromFiles converts yml or yaml file to kubernetes resources
-func GetObjectsFromFiles(filePaths []string) (ResourceTypes, error) {
-	var resources ResourceTypes
-
-	for _, f := range filePaths {
-		objects := utils.DecodeYamlFile(f)
-		for _, obj := range objects {
-			switch o := obj.(type) {
-			case *corev1.Node:
-				resources.Nodes = append(resources.Nodes, o)
-				storageFile := fmt.Sprintf("%s.json", strings.TrimSuffix(f, filepath.Ext(f)))
-				if err := AddLocalStorageInfoInNode(o, storageFile); err != nil && !errors.Is(err, os.ErrNotExist) {
-					return resources, err
-				}
-			case *corev1.Pod:
-				resources.Pods = append(resources.Pods, o)
-			case *apps.DaemonSet:
-				resources.DaemonSets = append(resources.DaemonSets, o)
-			case *apps.StatefulSet:
-				resources.StatefulSets = append(resources.StatefulSets, o)
-			case *apps.Deployment:
-				resources.Deployments = append(resources.Deployments, o)
-			case *corev1.Service:
-				resources.Services = append(resources.Services, o)
-			case *corev1.PersistentVolumeClaim:
-				resources.PersistentVolumeClaims = append(resources.PersistentVolumeClaims, o)
-			case *corev1.ReplicationController:
-				resources.ReplicationControllers = append(resources.ReplicationControllers, o)
-			case *apps.ReplicaSet:
-				resources.ReplicaSets = append(resources.ReplicaSets, o)
-			case *batchv1.Job:
-				resources.Jobs = append(resources.Jobs, o)
-			case *batchv1beta1.CronJob:
-				resources.CronJobs = append(resources.CronJobs, o)
-			case *v1.StorageClass:
-				resources.StorageClasss = append(resources.StorageClasss, o)
-			case *v1beta1.PodDisruptionBudget:
-				resources.PodDisruptionBudgets = append(resources.PodDisruptionBudgets, o)
-			default:
-				log.Debugf("unknown type(%s): %T\n", f, o)
-				continue
-			}
-		}
-	}
-	return resources, nil
-}
-
-func AddLocalStorageInfoInNode(node *corev1.Node, jsonfile string) error {
-	info, err := utils.ReadJsonFile(jsonfile)
-	if err != nil {
-		return err
-	}
-	if info != "" {
-		metav1.SetMetaDataAnnotation(&node.ObjectMeta, simontype.AnnoNodeLocalStorage, info)
-	}
-	return nil
-}
-
 // GetValidPodExcludeDaemonSet gets valid pod by resources exclude DaemonSet that needs to be handled specially
 func GetValidPodExcludeDaemonSet(resources ResourceTypes) []*corev1.Pod {
-	var pods []*corev1.Pod = make([]*corev1.Pod, 0)
+	pods := make([]*corev1.Pod, 0)
 	//get valid pods by pods
 	for _, item := range resources.Pods {
 		pods = append(pods, utils.MakeValidPodByPod(item))
@@ -149,6 +89,53 @@ func GetValidPodExcludeDaemonSet(resources ResourceTypes) []*corev1.Pod {
 	}
 
 	return pods
+}
+
+// GetObjectFromYamlContent decodes the yaml content and returns the kubernetes objects
+func GetObjectFromYamlContent(ymlStr []string) (ResourceTypes, error) {
+	var resources ResourceTypes
+
+	for _, res := range ymlStr {
+		objects, err := utils.DecodeYamlContent([]byte(res))
+		if err != nil {
+			return ResourceTypes{}, fmt.Errorf("failed to decode yaml to k8s object: \n%s\n%v", ymlStr, err)
+		}
+		for _, obj := range objects {
+			switch o := obj.(type) {
+			case *corev1.Node:
+				resources.Nodes = append(resources.Nodes, o)
+			case *corev1.Pod:
+				resources.Pods = append(resources.Pods, o)
+			case *apps.DaemonSet:
+				resources.DaemonSets = append(resources.DaemonSets, o)
+			case *apps.StatefulSet:
+				resources.StatefulSets = append(resources.StatefulSets, o)
+			case *apps.Deployment:
+				resources.Deployments = append(resources.Deployments, o)
+			case *corev1.Service:
+				resources.Services = append(resources.Services, o)
+			case *corev1.PersistentVolumeClaim:
+				resources.PersistentVolumeClaims = append(resources.PersistentVolumeClaims, o)
+			case *corev1.ReplicationController:
+				resources.ReplicationControllers = append(resources.ReplicationControllers, o)
+			case *apps.ReplicaSet:
+				resources.ReplicaSets = append(resources.ReplicaSets, o)
+			case *batchv1.Job:
+				resources.Jobs = append(resources.Jobs, o)
+			case *batchv1beta1.CronJob:
+				resources.CronJobs = append(resources.CronJobs, o)
+			case *v1.StorageClass:
+				resources.StorageClasss = append(resources.StorageClasss, o)
+			case *v1beta1.PodDisruptionBudget:
+				resources.PodDisruptionBudgets = append(resources.PodDisruptionBudgets, o)
+			default:
+				log.Debugf("unknown type(%T): %s\n", o, ymlStr)
+				continue
+			}
+		}
+	}
+
+	return resources, nil
 }
 
 func InitKubeSchedulerConfiguration(opts *schedoptions.Options) (*schedconfig.CompletedConfig, error) {
@@ -240,4 +227,24 @@ func GetAndSetSchedulerConfig(schedulerConfig string) (*config.CompletedConfig, 
 		return nil, fmt.Errorf("failed to init kube scheduler configuration: %v ", err)
 	}
 	return cc, nil
+}
+
+// MatchAndSetStorageAnnotationOnNode add storage information configured by json file, belonging to the node that matches
+// the json file name, to annotation of this node
+func MatchAndSetStorageAnnotationOnNode(nodes []*corev1.Node, dir string) {
+	storageInfo := make(map[string]string)
+
+	filePaths, _ := utils.ParseFilePath(dir)
+	for _, filePath := range filePaths {
+		if json := utils.ReadJsonFile(filePath); json != nil {
+			name := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
+			storageInfo[name] = string(json)
+		}
+	}
+
+	for _, node := range nodes {
+		if info, exist := storageInfo[node.Name]; exist {
+			metav1.SetMetaDataAnnotation(&node.ObjectMeta, simontype.AnnoNodeLocalStorage, info)
+		}
+	}
 }

@@ -21,7 +21,7 @@ require (
 	k8s.io/klog/v2 v2.9.0 // indirect
 	k8s.io/kube-scheduler v0.20.5
 	k8s.io/kubectl v0.21.0
-	k8s.io/kubernetes v1.20.5
+	k8s.io/kubernetes v1.19.0
 	sigs.k8s.io/yaml v1.2.0
 )
 
@@ -48,7 +48,7 @@ replace (
 	k8s.io/kube-scheduler => k8s.io/kube-scheduler v0.20.5
 	k8s.io/kubectl => k8s.io/kubectl v0.20.5
 	k8s.io/kubelet => k8s.io/kubelet v0.20.5
-	k8s.io/kubernetes => k8s.io/kubernetes v1.20.5
+	k8s.io/kubernetes => k8s.io/kubernetes v1.19.0
 	k8s.io/legacy-cloud-providers => k8s.io/legacy-cloud-providers v0.20.5
 	k8s.io/metrics => k8s.io/metrics v0.20.5
 	k8s.io/mount-utils => k8s.io/mount-utils v0.20.5

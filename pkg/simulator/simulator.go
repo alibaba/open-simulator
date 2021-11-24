@@ -358,7 +358,7 @@ func WithSchedulerConfig(schedulerConfig string) Option {
 	}
 }
 
-// CreateClusterResource
+// CreateClusterResourceFromClient returns a ResourceTypes struct by kube-client that connects a real cluster
 func CreateClusterResourceFromClient(client externalclientset.Interface) (ResourceTypes, error) {
 	var resource ResourceTypes
 	var err error
@@ -465,14 +465,16 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 	return resource, nil
 }
 
+// CreateClusterResourceFromClusterConfig return a ResourceTypes struct based on the cluster config
 func CreateClusterResourceFromClusterConfig(path string) (ResourceTypes, error) {
 	var resource ResourceTypes
-	clusterFilePaths, err := utils.ParseFilePath(path)
-	if err != nil {
-		return resource, fmt.Errorf("Failed to parse the cluster config path: %v ", err)
+	var content []string
+	var err error
+
+	if content, err = utils.GetYamlContentFromDirectory(path); err != nil {
+		return ResourceTypes{}, fmt.Errorf("failed to get the yaml content from the cluster directory(%s): %v", path, err)
 	}
-	resource, err = GetObjectsFromFiles(clusterFilePaths)
-	if err != nil {
+	if resource, err = GetObjectFromYamlContent(content); err != nil {
 		return resource, err
 	}
 
@@ -481,6 +483,7 @@ func CreateClusterResourceFromClusterConfig(path string) (ResourceTypes, error) 
 		metav1.SetMetaDataLabel(&item.ObjectMeta, simontype.LabelDaemonSetFromCluster, "")
 		resource.Pods = append(resource.Pods, utils.MakeValidPodsByDaemonset(item, resource.Nodes)...)
 	}
+	MatchAndSetStorageAnnotationOnNode(resource.Nodes, path)
 
 	return resource, nil
 }
