@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -67,44 +66,64 @@ func ParseFilePath(path string) (filePaths []string, err error) {
 	return filePaths, nil
 }
 
-// DecodeYamlFile captures the yml or yaml file, and decodes it
-func DecodeYamlFile(file string) []runtime.Object {
-	fileExtension := filepath.Ext(file)
-	if fileExtension != ".yaml" && fileExtension != ".yml" {
-		return nil
-	}
-	yamlFile, err := ioutil.ReadFile(file)
-	if err != nil {
-		fmt.Printf("Error while read file %s: %s\n", file, err.Error())
-		os.Exit(1)
-	}
-
+// DecodeYamlContent captures the yml or yaml file, and decodes it
+func DecodeYamlContent(yamlRes []byte) ([]runtime.Object, error) {
 	objects := make([]runtime.Object, 0)
-	yamls := releaseutil.SplitManifests(string(yamlFile))
+	yamls := releaseutil.SplitManifests(string(yamlRes))
 	for _, yaml := range yamls {
 		decode := scheme.Codecs.UniversalDeserializer().Decode
 		obj, _, err := decode([]byte(yaml), nil, nil)
 		if err != nil {
-			fmt.Printf("Error while decoding YAML file %s. Err was: %s", file, err)
-			os.Exit(1)
+			return nil, err
 		}
 
 		objects = append(objects, obj)
 	}
 
-	return objects
+	return objects, nil
 }
 
-func ReadJsonFile(file string) (string, error) {
-	if _, err := os.Stat(file); err != nil {
-		return "", nil
+func ReadYamlFile(path string) []byte {
+	fileExtension := filepath.Ext(path)
+	if fileExtension != ".yaml" && fileExtension != ".yml" {
+		return nil
+	}
+	yamlFile, err := ioutil.ReadFile(path)
+	if err != nil {
+		fmt.Printf("Error while read file %s: %s\n", path, err.Error())
+		os.Exit(1)
+	}
+	return yamlFile
+}
+
+func ReadJsonFile(path string) []byte {
+	pathExtension := filepath.Ext(path)
+	if pathExtension != ".json" {
+		return nil
+	}
+	jsonFile, err := ioutil.ReadFile(path)
+	if err != nil {
+		fmt.Printf("Error while read file %s: %s\n", path, err.Error())
+		os.Exit(1)
 	}
 
-	plan, _ := ioutil.ReadFile(file)
-	if ok := json.Valid(plan); !ok {
-		return "", fmt.Errorf("valid json file %s failed", file)
+	return jsonFile
+}
+
+// GetYamlContentFromDirectory returns the yaml content and ignores other content
+func GetYamlContentFromDirectory(dir string) ([]string, error) {
+	var ymlStr []string
+	filePaths, err := ParseFilePath(dir)
+	if err != nil {
+		return ymlStr, fmt.Errorf("failed to parse the directory: %v", err)
 	}
-	return string(plan), nil
+	for _, filePath := range filePaths {
+		if yml := ReadYamlFile(filePath); yml != nil {
+			ymlStr = append(ymlStr, string(yml))
+		}
+	}
+
+	return ymlStr, nil
 }
 
 func MakeValidPodsByDeployment(deploy *apps.Deployment) []*corev1.Pod {
@@ -597,42 +616,6 @@ func MultiplyQuant(quant resource.Quantity, factor float64) resource.Quantity {
 func GetNodeAllocatable(node *corev1.Node) (resource.Quantity, resource.Quantity) {
 	nodeAllocatable := node.Status.Allocatable.DeepCopy()
 	return *nodeAllocatable.Cpu(), *nodeAllocatable.Memory()
-}
-
-func GetTotalNumberOfPodsWithoutNodeName(pods []*corev1.Pod) int64 {
-	var podsWithoutNodeNameCount int64 = 0
-	for _, item := range pods {
-		if item.Spec.NodeName == "" {
-			podsWithoutNodeNameCount++
-		}
-	}
-	return podsWithoutNodeNameCount
-}
-
-// Confirm send the prompt and get result
-func Confirm(prompt string) bool {
-	var (
-		inputStr string
-		err      error
-	)
-	_, err = fmt.Fprint(os.Stdout, prompt)
-	if err != nil {
-		fmt.Printf("fmt.Fprint err: %v", err)
-		os.Exit(-1)
-	}
-
-	_, err = fmt.Scanf("%s", &inputStr)
-	if err != nil {
-		fmt.Printf("fmt.Fprint err: %v", err)
-		os.Exit(-1)
-	}
-
-	return GetConfirmResult(inputStr)
-}
-
-// GetConfirmResult returns true like y|yes|Y|YES
-func GetConfirmResult(str string) bool {
-	return regexp.MustCompile("^(?i:y(?:es)?)$").MatchString(str)
 }
 
 func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*apps.DaemonSet) bool {

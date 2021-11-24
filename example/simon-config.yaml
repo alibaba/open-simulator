@@ -33,4 +33,4 @@ spec:
       path: example/application/more_pods
 
   # newNode: 导入调整集群规模的节点配置文件，节点规格可根据需求任意指定。目前只支持配置一个节点
-  newNode: example/node.yaml
+  newNode: example/newnode

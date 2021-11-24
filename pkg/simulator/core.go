@@ -51,6 +51,7 @@ type Interface interface {
 	Close()
 }
 
+// Simulate
 // 参数
 // 1. 由使用方自己生成 cluster 和 apps 传参
 // 2. apps 将按照顺序模拟部署
