@@ -22,9 +22,8 @@ const (
 	AnnoNodeLocalStorage  = "simon/node-local-storage"
 	AnnoPodLocalStorage   = "simon/pod-local-storage"
 
-	LabelDaemonSetFromCluster = "simon/daemonset-from-cluster"
-	LabelNewNode              = "simon/new-node"
-	LabelAppName              = "simon/app-name"
+	LabelNewNode = "simon/new-node"
+	LabelAppName = "simon/app-name"
 
 	EnvMaxCPU    = "MaxCPU"
 	EnvMaxMemory = "MaxMemory"

@@ -1,6 +1,7 @@
 package simulator
 
 import (
+	"github.com/alibaba/open-simulator/pkg/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
@@ -66,6 +67,11 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 		return nil, err
 	}
 	defer sim.Close()
+
+	cluster.Pods = GetValidPodExcludeDaemonSet(cluster)
+	for _, item := range cluster.DaemonSets {
+		cluster.Pods = append(cluster.Pods, utils.MakeValidPodsByDaemonset(item, cluster.Nodes)...)
+	}
 
 	var failedPods []UnscheduledPod
 	// run cluster
