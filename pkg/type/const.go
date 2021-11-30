@@ -30,15 +30,20 @@ const (
 	EnvMaxMemory = "MaxMemory"
 	EnvMaxVG     = "MaxVG"
 
-	WorkloadKindDeployment  = "Deployment"
-	WorkloadKindStatefulSet = "StatefulSet"
-	WorkloadKindDaemonSet   = "DaemonSet"
+	Deployment            = "Deployment"
+	ReplicaSet            = "ReplicaSet"
+	ReplicationController = "ReplicationController"
+	StatefulSet           = "StatefulSet"
+	DaemonSet             = "DaemonSet"
+	Job                   = "Job"
+	CronJob               = "CronJob"
 
 	ConfigMapName      = "simulator-plan"
 	ConfigMapNamespace = metav1.NamespaceSystem
 	ConfigMapFileName  = "configmap-simon.yaml"
 
-	NotesFileSuffix            = "NOTES.txt"
-	DirectoryForChart          = "/tmp/charts"
-	DefaultDirectoryPermission = 0755
+	NotesFileSuffix       = "NOTES.txt"
+	SeparateSymbol        = "-"
+	WorkLoadHashCodeDigit = 10
+	PodHashCodeDigit      = 5
 )
