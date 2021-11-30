@@ -68,22 +68,26 @@ func GetValidPodExcludeDaemonSet(resources ResourceTypes) []*corev1.Pod {
 		pods = append(pods, utils.MakeValidPodByPod(item))
 	}
 
-	// get all pods from deployment
 	for _, deploy := range resources.Deployments {
 		pods = append(pods, utils.MakeValidPodsByDeployment(deploy)...)
 	}
 
-	// get all pods from statefulset
+	for _, rs := range resources.ReplicaSets {
+		pods = append(pods, utils.MakeValidPodsByReplicaSet(rs)...)
+	}
+
+	for _, rc := range resources.ReplicationControllers {
+		pods = append(pods, utils.MakeValidPodsByReplicationController(rc)...)
+	}
+
 	for _, sts := range resources.StatefulSets {
 		pods = append(pods, utils.MakeValidPodsByStatefulSet(sts)...)
 	}
 
-	// get all pods from job
 	for _, job := range resources.Jobs {
 		pods = append(pods, utils.MakeValidPodByJob(job)...)
 	}
 
-	// get all pods from cronjob
 	for _, cronjob := range resources.CronJobs {
 		pods = append(pods, utils.MakeValidPodByCronJob(cronjob)...)
 	}
