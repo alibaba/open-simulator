@@ -371,6 +371,8 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 		resource.Nodes = append(resource.Nodes, &newItem)
 	}
 
+	// TODO: only get static pods, cause we will generate pod from workload in Simulate function.
+	// we can use IsStaticPod(k8s.io/kubernetes/pkg/kubelet/types/) to check if type of pod is static
 	podItems, err := client.CoreV1().Pods(metav1.NamespaceAll).List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		return resource, fmt.Errorf("unable to list pods: %v", err)
@@ -458,7 +460,6 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 	}
 	for _, item := range daemonSetItems.Items {
 		newItem := item
-		metav1.SetMetaDataLabel(&newItem.ObjectMeta, simontype.LabelDaemonSetFromCluster, "")
 		resource.DaemonSets = append(resource.DaemonSets, &newItem)
 	}
 
@@ -478,11 +479,6 @@ func CreateClusterResourceFromClusterConfig(path string) (ResourceTypes, error) 
 		return resource, err
 	}
 
-	resource.Pods = GetValidPodExcludeDaemonSet(resource)
-	for _, item := range resource.DaemonSets {
-		metav1.SetMetaDataLabel(&item.ObjectMeta, simontype.LabelDaemonSetFromCluster, "")
-		resource.Pods = append(resource.Pods, utils.MakeValidPodsByDaemonset(item, resource.Nodes)...)
-	}
 	MatchAndSetStorageAnnotationOnNode(resource.Nodes, path)
 
 	return resource, nil
