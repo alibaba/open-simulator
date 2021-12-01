@@ -18,6 +18,7 @@ import (
 	externalclientset "k8s.io/client-go/kubernetes"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/cache"
+	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 	"k8s.io/kubernetes/pkg/scheduler"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework"
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
@@ -378,8 +379,10 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 		return resource, fmt.Errorf("unable to list pods: %v", err)
 	}
 	for _, item := range podItems.Items {
-		newItem := item
-		resource.Pods = append(resource.Pods, &newItem)
+		if kubetypes.IsStaticPod(&item) {
+			newItem := item
+			resource.Pods = append(resource.Pods, &newItem)
+		}
 	}
 
 	pdbItems, err := client.PolicyV1beta1().PodDisruptionBudgets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
@@ -441,8 +444,10 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 		return resource, fmt.Errorf("unable to list replicas sets: %v", err)
 	}
 	for _, item := range replicaSetItems.Items {
-		newItem := item
-		resource.ReplicaSets = append(resource.ReplicaSets, &newItem)
+		if !ownedByDeployment(item.OwnerReferences) {
+			newItem := item
+			resource.ReplicaSets = append(resource.ReplicaSets, &newItem)
+		}
 	}
 
 	statefulSetItems, err := client.AppsV1().StatefulSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
@@ -461,6 +466,26 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 	for _, item := range daemonSetItems.Items {
 		newItem := item
 		resource.DaemonSets = append(resource.DaemonSets, &newItem)
+	}
+
+	cronJobItems, err := client.BatchV1beta1().CronJobs(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return resource, fmt.Errorf("unable to list cronjob: %v", err)
+	}
+	for _, item := range cronJobItems.Items {
+		newItem := item
+		resource.CronJobs = append(resource.CronJobs, &newItem)
+	}
+
+	jobItems, err := client.BatchV1().Jobs(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return resource, fmt.Errorf("unable to list job: %v", err)
+	}
+	for _, item := range jobItems.Items {
+		if !ownedByCronJob(item.OwnerReferences) {
+			newItem := item
+			resource.Jobs = append(resource.Jobs, &newItem)
+		}
 	}
 
 	return resource, nil
@@ -482,4 +507,22 @@ func CreateClusterResourceFromClusterConfig(path string) (ResourceTypes, error) 
 	MatchAndSetStorageAnnotationOnNode(resource.Nodes, path)
 
 	return resource, nil
+}
+
+func ownedByDeployment(refs []metav1.OwnerReference) bool {
+	for _, ref := range refs {
+		if ref.Kind == simontype.Deployment {
+			return true
+		}
+	}
+	return false
+}
+
+func ownedByCronJob(refs []metav1.OwnerReference) bool {
+	for _, ref := range refs {
+		if ref.Kind == simontype.CronJob {
+			return true
+		}
+	}
+	return false
 }
