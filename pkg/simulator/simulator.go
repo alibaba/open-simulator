@@ -18,6 +18,7 @@ import (
 	externalclientset "k8s.io/client-go/kubernetes"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/cache"
+	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 	"k8s.io/kubernetes/pkg/scheduler"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework"
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
@@ -73,7 +74,7 @@ func New(opts ...Option) (Interface, error) {
 	// Step 2: get scheduler CompletedConfig and set the list of scheduler bind plugins to Simon.
 	kubeSchedulerConfig, err := GetAndSetSchedulerConfig(options.schedulerConfig)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("New | %v ", err)
 	}
 
 	// Step 3: create fake client
@@ -145,7 +146,7 @@ func New(opts ...Option) (Interface, error) {
 		scheduler.WithExtenders(kubeSchedulerConfig.ComponentConfig.Extenders...),
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("New | failed to create a new scheduler: %v ", err)
 	}
 
 	return sim, nil
@@ -155,15 +156,19 @@ func New(opts ...Option) (Interface, error) {
 func (sim *Simulator) RunCluster(cluster ResourceTypes) (*SimulateResult, error) {
 	// start scheduler
 	sim.runScheduler()
+	result, err := sim.syncClusterResourceList(cluster)
+	if err != nil {
+		return result, fmt.Errorf("RunCluster | %v", err)
+	}
 
-	return sim.syncClusterResourceList(cluster)
+	return result, nil
 }
 
 func (sim *Simulator) ScheduleApp(apps AppResource) (*SimulateResult, error) {
 	// 由 AppResource 生成 Pods
 	appPods, err := GenerateValidPodsFromAppResources(sim.fakeclient, apps.Name, apps.Resource)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ScheduleApp:%s | %v", apps.Name, err)
 	}
 	affinityPriority := algo.NewAffinityQueue(appPods)
 	sort.Sort(affinityPriority)
@@ -171,7 +176,7 @@ func (sim *Simulator) ScheduleApp(apps AppResource) (*SimulateResult, error) {
 	sort.Sort(tolerationPriority)
 	failedPod, err := sim.schedulePods(appPods)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ScheduleApp | %v", err)
 	}
 	return &SimulateResult{
 		UnscheduledPods: failedPod,
@@ -214,8 +219,8 @@ func (sim *Simulator) runScheduler() {
 func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error) {
 	var failedPods []UnscheduledPod
 	for _, pod := range pods {
-		if _, err := sim.fakeclient.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{}); err != nil {
-			return nil, fmt.Errorf("%s %s/%s: %s", simontype.CreatePodError, pod.Namespace, pod.Name, err.Error())
+		if _, err := sim.fakeclient.CoreV1().Pods(pod.Namespace).Create(context.TODO(), pod, metav1.CreateOptions{}); err != nil {
+			return nil, fmt.Errorf("schedulePods | %s %s/%s: %s", simontype.CreatePodError, pod.Namespace, pod.Name, err.Error())
 		}
 
 		// we send value into sim.simulatorStop channel in update() function only,
@@ -225,8 +230,8 @@ func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error)
 		}
 
 		if strings.Contains(sim.status.stopReason, "failed") {
-			if err := sim.fakeclient.CoreV1().Pods(pod.Namespace).Delete(context.Background(), pod.Name, metav1.DeleteOptions{}); err != nil {
-				return nil, fmt.Errorf("%s %s/%s: %s", simontype.DeletePodError, pod.Namespace, pod.Name, err.Error())
+			if err := sim.fakeclient.CoreV1().Pods(pod.Namespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{}); err != nil {
+				return nil, fmt.Errorf("schedulePods | %s %s/%s: %s", simontype.DeletePodError, pod.Namespace, pod.Name, err.Error())
 			}
 			failedPods = append(failedPods, UnscheduledPod{
 				Pod:    pod,
@@ -247,77 +252,77 @@ func (sim *Simulator) syncClusterResourceList(resourceList ResourceTypes) (*Simu
 	//sync node
 	for _, item := range resourceList.Nodes {
 		if _, err := sim.fakeclient.CoreV1().Nodes().Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return nil, fmt.Errorf("unable to copy node: %v", err)
+			return nil, fmt.Errorf("syncClusterResourceList | unable to copy node: %v", err)
 		}
 	}
 
 	//sync pdb
 	for _, item := range resourceList.PodDisruptionBudgets {
 		if _, err := sim.fakeclient.PolicyV1beta1().PodDisruptionBudgets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return nil, fmt.Errorf("unable to copy PDB: %v", err)
+			return nil, fmt.Errorf("syncClusterResourceList | unable to copy PDB: %v", err)
 		}
 	}
 
 	//sync svc
 	for _, item := range resourceList.Services {
 		if _, err := sim.fakeclient.CoreV1().Services(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return nil, fmt.Errorf("unable to copy service: %v", err)
+			return nil, fmt.Errorf("syncClusterResourceList | unable to copy service: %v", err)
 		}
 	}
 
 	//sync storage class
 	for _, item := range resourceList.StorageClasss {
 		if _, err := sim.fakeclient.StorageV1().StorageClasses().Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return nil, fmt.Errorf("unable to copy storage class: %v", err)
+			return nil, fmt.Errorf("syncClusterResourceList | unable to copy storage class: %v", err)
 		}
 	}
 
 	//sync pvc
 	for _, item := range resourceList.PersistentVolumeClaims {
 		if _, err := sim.fakeclient.CoreV1().PersistentVolumeClaims(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return nil, fmt.Errorf("unable to copy pvc: %v", err)
+			return nil, fmt.Errorf("syncClusterResourceList | unable to copy pvc: %v", err)
 		}
 	}
 
 	//sync rc
 	for _, item := range resourceList.ReplicationControllers {
 		if _, err := sim.fakeclient.CoreV1().ReplicationControllers(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return nil, fmt.Errorf("unable to copy RC: %v", err)
+			return nil, fmt.Errorf("syncClusterResourceList | unable to copy RC: %v", err)
 		}
 	}
 
 	//sync deployment
 	for _, item := range resourceList.Deployments {
 		if _, err := sim.fakeclient.AppsV1().Deployments(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return nil, fmt.Errorf("unable to copy deployment: %v", err)
+			return nil, fmt.Errorf("syncClusterResourceList | unable to copy deployment: %v", err)
 		}
 	}
 
 	//sync rs
 	for _, item := range resourceList.ReplicaSets {
 		if _, err := sim.fakeclient.AppsV1().ReplicaSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return nil, fmt.Errorf("unable to copy replica set: %v", err)
+			return nil, fmt.Errorf("syncClusterResourceList | unable to copy replica set: %v", err)
 		}
 	}
 
 	//sync statefulset
 	for _, item := range resourceList.StatefulSets {
 		if _, err := sim.fakeclient.AppsV1().StatefulSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return nil, fmt.Errorf("unable to copy stateful set: %v", err)
+			return nil, fmt.Errorf("syncClusterResourceList | unable to copy stateful set: %v", err)
 		}
 	}
 
 	//sync daemonset
 	for _, item := range resourceList.DaemonSets {
 		if _, err := sim.fakeclient.AppsV1().DaemonSets(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return nil, fmt.Errorf("unable to copy daemon set: %v", err)
+			return nil, fmt.Errorf("syncClusterResourceList | unable to copy daemon set: %v", err)
 		}
 	}
 
 	// sync pods
 	failedPods, err := sim.schedulePods(resourceList.Pods)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("syncClusterResourceList | %v", err)
 	}
 
 	return &SimulateResult{
@@ -367,25 +372,29 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 	var err error
 	nodeItems, err := client.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list nodes: %v ", err)
+		return resource, fmt.Errorf("CreateClusterResourceFromClient | unable to list nodes: %v ", err)
 	}
 	for _, item := range nodeItems.Items {
 		newItem := item
 		resource.Nodes = append(resource.Nodes, &newItem)
 	}
 
+	// TODO: only get static pods, cause we will generate pod from workload in Simulate function.
+	// we can use IsStaticPod(k8s.io/kubernetes/pkg/kubelet/types/) to check if type of pod is static
 	podItems, err := client.CoreV1().Pods(metav1.NamespaceAll).List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list pods: %v ", err)
+		return resource, fmt.Errorf("CreateClusterResourceFromClient | unable to list pods: %v ", err)
 	}
 	for _, item := range podItems.Items {
-		newItem := item
-		resource.Pods = append(resource.Pods, &newItem)
+		if kubetypes.IsStaticPod(&item) {
+			newItem := item
+			resource.Pods = append(resource.Pods, &newItem)
+		}
 	}
 
 	pdbItems, err := client.PolicyV1beta1().PodDisruptionBudgets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list PDBs: %v ", err)
+		return resource, fmt.Errorf("CreateClusterResourceFromClient | unable to list PDBs: %v ", err)
 	}
 	for _, item := range pdbItems.Items {
 		newItem := item
@@ -394,7 +403,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	serviceItems, err := client.CoreV1().Services(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list services: %v ", err)
+		return resource, fmt.Errorf("CreateClusterResourceFromClient | unable to list services: %v ", err)
 	}
 	for _, item := range serviceItems.Items {
 		newItem := item
@@ -403,7 +412,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	storageClassesItems, err := client.StorageV1().StorageClasses().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list storage classes: %v ", err)
+		return resource, fmt.Errorf("CreateClusterResourceFromClient | unable to list storage classes: %v ", err)
 	}
 	for _, item := range storageClassesItems.Items {
 		newItem := item
@@ -412,7 +421,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	pvcItems, err := client.CoreV1().PersistentVolumeClaims(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list pvcs: %v ", err)
+		return resource, fmt.Errorf("CreateClusterResourceFromClient | unable to list pvcs: %v ", err)
 	}
 	for _, item := range pvcItems.Items {
 		newItem := item
@@ -421,7 +430,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	rcItems, err := client.CoreV1().ReplicationControllers(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list RCs: %v ", err)
+		return resource, fmt.Errorf("CreateClusterResourceFromClient | unable to list RCs: %v ", err)
 	}
 	for _, item := range rcItems.Items {
 		newItem := item
@@ -430,7 +439,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	deploymentItems, err := client.AppsV1().Deployments(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list deployment: %v ", err)
+		return resource, fmt.Errorf("CreateClusterResourceFromClient | unable to list deployment: %v ", err)
 	}
 	for _, item := range deploymentItems.Items {
 		newItem := item
@@ -439,16 +448,18 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	replicaSetItems, err := client.AppsV1().ReplicaSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list replicas sets: %v ", err)
+		return resource, fmt.Errorf("CreateClusterResourceFromClient | unable to list replicas sets: %v ", err)
 	}
 	for _, item := range replicaSetItems.Items {
-		newItem := item
-		resource.ReplicaSets = append(resource.ReplicaSets, &newItem)
+		if !ownedByDeployment(item.OwnerReferences) {
+			newItem := item
+			resource.ReplicaSets = append(resource.ReplicaSets, &newItem)
+		}
 	}
 
 	statefulSetItems, err := client.AppsV1().StatefulSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list stateful sets: %v ", err)
+		return resource, fmt.Errorf("CreateClusterResourceFromClient | unable to list stateful sets: %v ", err)
 	}
 	for _, item := range statefulSetItems.Items {
 		newItem := item
@@ -457,12 +468,31 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	daemonSetItems, err := client.AppsV1().DaemonSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list daemon sets: %v ", err)
+		return resource, fmt.Errorf("CreateClusterResourceFromClient | unable to list daemon sets: %v ", err)
 	}
 	for _, item := range daemonSetItems.Items {
 		newItem := item
-		metav1.SetMetaDataLabel(&newItem.ObjectMeta, simontype.LabelDaemonSetFromCluster, "")
 		resource.DaemonSets = append(resource.DaemonSets, &newItem)
+	}
+
+	cronJobItems, err := client.BatchV1beta1().CronJobs(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return resource, fmt.Errorf("CreateClusterResourceFromClient | unable to list cronjob: %v ", err)
+	}
+	for _, item := range cronJobItems.Items {
+		newItem := item
+		resource.CronJobs = append(resource.CronJobs, &newItem)
+	}
+
+	jobItems, err := client.BatchV1().Jobs(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return resource, fmt.Errorf("CreateClusterResourceFromClient | unable to list job: %v ", err)
+	}
+	for _, item := range jobItems.Items {
+		if !ownedByCronJob(item.OwnerReferences) {
+			newItem := item
+			resource.Jobs = append(resource.Jobs, &newItem)
+		}
 	}
 
 	return resource, nil
@@ -475,25 +505,31 @@ func CreateClusterResourceFromClusterConfig(path string) (ResourceTypes, error) 
 	var err error
 
 	if content, err = utils.GetYamlContentFromDirectory(path); err != nil {
-		return ResourceTypes{}, err
+		return ResourceTypes{}, fmt.Errorf("CreateClusterResourceFromClusterConfig | %v", err)
 	}
 	if resource, err = GetObjectFromYamlContent(content); err != nil {
-		return resource, err
+		return resource, fmt.Errorf("CreateClusterResourceFromClusterConfig | %v", err)
 	}
 
-	resource.Pods, err = GetValidPodExcludeDaemonSet(resource)
-	if err != nil {
-		return ResourceTypes{}, err
-	}
-	for _, item := range resource.DaemonSets {
-		metav1.SetMetaDataLabel(&item.ObjectMeta, simontype.LabelDaemonSetFromCluster, "")
-		validPods, err := utils.MakeValidPodsByDaemonset(item, resource.Nodes)
-		if err != nil {
-			return ResourceTypes{}, err
-		}
-		resource.Pods = append(resource.Pods, validPods...)
-	}
 	MatchAndSetStorageAnnotationOnNode(resource.Nodes, path)
 
 	return resource, nil
+}
+
+func ownedByDeployment(refs []metav1.OwnerReference) bool {
+	for _, ref := range refs {
+		if ref.Kind == simontype.Deployment {
+			return true
+		}
+	}
+	return false
+}
+
+func ownedByCronJob(refs []metav1.OwnerReference) bool {
+	for _, ref := range refs {
+		if ref.Kind == simontype.CronJob {
+			return true
+		}
+	}
+	return false
 }

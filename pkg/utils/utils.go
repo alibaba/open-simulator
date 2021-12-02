@@ -41,14 +41,14 @@ import (
 func ParseFilePath(path string) (filePaths []string, err error) {
 	fi, err := os.Stat(path)
 	if err != nil {
-		return nil, fmt.Errorf("Func: ParseFilePath | failed to parse path(%s): %v ", path, err)
+		return nil, fmt.Errorf("ParseFilePath | failed to parse path(%s): %v ", path, err)
 	}
 
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
 		files, err := ioutil.ReadDir(path)
 		if err != nil {
-			return nil, fmt.Errorf("Func: ParseFilePath | failed to read directory(%s): %v ", path, err)
+			return nil, fmt.Errorf("ParseFilePath | failed to read directory(%s): %v ", path, err)
 		}
 		for _, f := range files {
 			p := filepath.Join(path, f.Name())
@@ -61,7 +61,7 @@ func ParseFilePath(path string) (filePaths []string, err error) {
 	case mode.IsRegular():
 		filePaths = append(filePaths, path)
 	default:
-		return nil, fmt.Errorf("Func: ParseFilePath | invalid path: %s ", path)
+		return nil, fmt.Errorf("ParseFilePath | invalid path: %s ", path)
 	}
 
 	return filePaths, nil
@@ -75,7 +75,7 @@ func DecodeYamlContent(yamlRes []byte) ([]runtime.Object, error) {
 		decode := scheme.Codecs.UniversalDeserializer().Decode
 		obj, _, err := decode([]byte(yaml), nil, nil)
 		if err != nil {
-			return nil, fmt.Errorf("Func: DecodeYamlContent | failed to decode yaml content: \n%s\n%v", yaml, err)
+			return nil, fmt.Errorf("DecodeYamlContent | failed to decode yaml content: \n%s\n%v", yaml, err)
 		}
 
 		objects = append(objects, obj)
@@ -116,7 +116,7 @@ func GetYamlContentFromDirectory(dir string) ([]string, error) {
 	var ymlStr []string
 	filePaths, err := ParseFilePath(dir)
 	if err != nil {
-		return ymlStr, err
+		return ymlStr, fmt.Errorf("GetYamlContentFromDirectory | %v", err)
 	}
 	for _, filePath := range filePaths {
 		if yml := ReadYamlFile(filePath); yml != nil {
@@ -129,7 +129,12 @@ func GetYamlContentFromDirectory(dir string) ([]string, error) {
 
 func MakeValidPodsByDeployment(deploy *appsv1.Deployment) ([]*corev1.Pod, error) {
 	deploy.UID = uuid.NewUUID()
-	return MakeValidPodsByReplicaSet(generateReplicaSetFromDeployment(deploy))
+	pods, err := MakeValidPodsByReplicaSet(generateReplicaSetFromDeployment(deploy))
+	if err != nil {
+		return nil, fmt.Errorf("MakeValidPodsByDeployment | %v", err)
+	}
+
+	return pods, nil
 }
 
 func MakeValidPodsByReplicaSet(rs *appsv1.ReplicaSet) ([]*corev1.Pod, error) {
@@ -148,7 +153,7 @@ func MakeValidPodsByReplicaSet(rs *appsv1.ReplicaSet) ([]*corev1.Pod, error) {
 		}
 		validPod, err := MakeValidPod(pod)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("MakeValidPodsByReplicaSet | %v", err)
 		}
 		validPod = AddWorkloadInfoToPod(validPod, simontype.ReplicaSet, rs.Name, rs.Namespace)
 		pods = append(pods, validPod)
@@ -171,7 +176,7 @@ func MakeValidPodsByReplicationController(rc *corev1.ReplicationController) ([]*
 		}
 		validPod, err := MakeValidPod(pod)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("MakeValidPodsByReplicationController | %v", err)
 		}
 		validPod = AddWorkloadInfoToPod(validPod, simontype.ReplicationController, rc.Name, rc.Namespace)
 		pods = append(pods, validPod)
@@ -193,7 +198,12 @@ func generateReplicaSetFromDeployment(deploy *appsv1.Deployment) *appsv1.Replica
 
 func MakeValidPodByCronJob(cronjob *batchv1beta1.CronJob) ([]*corev1.Pod, error) {
 	cronjob.UID = uuid.NewUUID()
-	return MakeValidPodByJob(generateJobFromCronJob(cronjob))
+	pods, err := MakeValidPodByJob(generateJobFromCronJob(cronjob))
+	if err != nil {
+		return nil, fmt.Errorf("MakeValidPodByCronJob | %v", err)
+	}
+
+	return pods, err
 }
 
 func MakeValidPodByJob(job *batchv1.Job) ([]*corev1.Pod, error) {
@@ -214,7 +224,7 @@ func MakeValidPodByJob(job *batchv1.Job) ([]*corev1.Pod, error) {
 		}
 		validPod, err := MakeValidPod(pod)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("MakeValidPodByJob | %v", err)
 		}
 		validPod = AddWorkloadInfoToPod(validPod, simontype.Job, job.Name, job.Namespace)
 		pods = append(pods, validPod)
@@ -277,14 +287,14 @@ func MakeValidPodsByStatefulSet(ss *appsv1.StatefulSet) ([]*corev1.Pod, error) {
 		}
 		validPod, err := MakeValidPod(pod)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("MakeValidPodsByStatefulSet | %v", err)
 		}
 		validPod = AddWorkloadInfoToPod(validPod, simontype.StatefulSet, ss.Name, ss.Namespace)
 
 		// Storage
 		b, err := json.Marshal(volumes)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("MakeValidPodsByStatefulSet | failed to marshal volumes of statefulset(%s):\n%v\n%v", ss.Name, volumes, err)
 		}
 		metav1.SetMetaDataAnnotation(&validPod.ObjectMeta, simontype.AnnoPodLocalStorage, string(b))
 
@@ -337,7 +347,7 @@ func MakeValidPodsByDaemonset(ds *appsv1.DaemonSet, nodes []*corev1.Node) ([]*co
 	for _, node := range nodes {
 		pod, err := NewDaemonPod(ds, node.Name)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("MakeValidPodsByDaemonset | %v", err)
 		}
 		shouldRun := NodeShouldRunPod(node, pod)
 		if shouldRun {
@@ -355,7 +365,7 @@ func NewDaemonPod(ds *appsv1.DaemonSet, nodeName string) (*corev1.Pod, error) {
 	pod.Spec.Affinity = SetDaemonSetPodNodeNameByNodeAffinity(pod.Spec.Affinity, nodeName)
 	validPod, err := MakeValidPod(pod)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("NewDaemonPod | %v", err)
 	}
 	validPod = AddWorkloadInfoToPod(validPod, simontype.DaemonSet, ds.Name, ds.Namespace)
 
@@ -376,7 +386,7 @@ func MakeValidPodByPod(pod *corev1.Pod) (*corev1.Pod, error) {
 	pod.UID = uuid.NewUUID()
 	newPod, err := MakeValidPod(pod)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("MakeValidPodByPod | %v", err)
 	}
 	return newPod, nil
 }
@@ -458,7 +468,7 @@ func MakeValidPod(oldPod *corev1.Pod) (*corev1.Pod, error) {
 
 	// todo: handle pvc
 	if err := ValidatePod(newPod); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("MakeValidPod | %v", err)
 	}
 
 	return newPod, nil
@@ -483,7 +493,7 @@ func MakeValidNodeByNode(node *corev1.Node, nodename string) (*corev1.Node, erro
 		node.ObjectMeta.Annotations = map[string]string{}
 	}
 	if err := ValidateNode(node); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("MakeValidNodeByNode | %v", err)
 	}
 	return node, nil
 }
@@ -492,14 +502,14 @@ func MakeValidNodeByNode(node *corev1.Node, nodename string) (*corev1.Node, erro
 func ValidatePod(pod *corev1.Pod) error {
 	internalPod := &api.Pod{}
 	if err := apiv1.Convert_v1_Pod_To_core_Pod(pod, internalPod, nil); err != nil {
-		return fmt.Errorf("Func: ValidatePod | unable to convert to internal version: %#v ", err)
+		return fmt.Errorf("ValidatePod | unable to convert pod(%s) to internal version: %#v ", pod.Name, err)
 	}
 	if errs := validation.ValidatePodCreate(internalPod, validation.PodValidationOptions{}); len(errs) > 0 {
 		var errStrs []string
 		for _, err := range errs {
 			errStrs = append(errStrs, fmt.Sprintf("%v", err))
 		}
-		return fmt.Errorf("Func: ValidatePod | invalid pod: %#v ", strings.Join(errStrs, "\n"))
+		return fmt.Errorf("ValidatePod | invalid pod(%s): %#v ", pod.Name, strings.Join(errStrs, "\n"))
 	}
 	return nil
 }
@@ -535,7 +545,7 @@ func GetNodeStorage(node *corev1.Node) (*NodeStorage, error) {
 
 	nodeStorage := new(NodeStorage)
 	if err := ffjson.Unmarshal([]byte(nodeStorageStr), nodeStorage); err != nil {
-		return nil, fmt.Errorf("Func: GetNodeStorage | unmarshal info of node %s failed: %s ", node.Name, err.Error())
+		return nil, fmt.Errorf("GetNodeStorage | unmarshal info of node %s failed: %s ", node.Name, err.Error())
 	}
 
 	return nodeStorage, nil
@@ -544,7 +554,7 @@ func GetNodeStorage(node *corev1.Node) (*NodeStorage, error) {
 func GetNodeCache(node *corev1.Node) (*localcache.NodeCache, error) {
 	nodeStorage, err := GetNodeStorage(node)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GetNodeCache | %v", err)
 	} else if nodeStorage == nil {
 		return nil, nil
 	}
@@ -632,14 +642,14 @@ func GetPodLocalPVCs(pod *corev1.Pod) ([]*corev1.PersistentVolumeClaim, []*corev
 func ValidateNode(node *corev1.Node) error {
 	internalNode := &api.Node{}
 	if err := apiv1.Convert_v1_Node_To_core_Node(node, internalNode, nil); err != nil {
-		return fmt.Errorf("Func: ValidateNode | unable to convert to internal version: %#v ", err)
+		return fmt.Errorf("ValidateNode | unable to convert to internal version for node(%s): %#v ", node.Name, err)
 	}
 	if errs := validation.ValidateNode(internalNode); len(errs) > 0 {
 		var errStrs []string
 		for _, err := range errs {
 			errStrs = append(errStrs, fmt.Sprintf("%v", err))
 		}
-		return fmt.Errorf("Func: ValidateNode | invalid node: %#v ", strings.Join(errStrs, "\n"))
+		return fmt.Errorf("ValidateNode | invalid node(%s): %#v ", node.Name, strings.Join(errStrs, "\n"))
 	}
 
 	return nil
@@ -754,7 +764,7 @@ func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*apps
 		newItem := item
 		daemonPod, err := NewDaemonPod(newItem, simontype.NewNodeNamePrefix)
 		if err != nil {
-			return false, err
+			return false, fmt.Errorf("MeetResourceRequests | %v", err)
 		}
 		if NodeShouldRunPod(node, daemonPod) {
 			for _, container := range daemonPod.Spec.Containers {
@@ -776,7 +786,7 @@ func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*apps
 	// Local Storage
 	nodeStorage, err := GetNodeStorage(node)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("MeetResourceRequests | %v", err)
 	} else if nodeStorage == nil {
 		return true, nil
 	}
@@ -804,17 +814,17 @@ func CreateKubeClient(kubeconfig string) (*clientset.Clientset, error) {
 	var cfg *restclient.Config
 	master, err := GetMasterFromKubeConfig(kubeconfig)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("CreateKubeClient | %v", err)
 	}
 
 	cfg, err = clientcmd.BuildConfigFromFlags(master, kubeconfig)
 	if err != nil {
-		return nil, fmt.Errorf("Func: CreateKubeClient | Unable to build config: %v ", err)
+		return nil, fmt.Errorf("CreateKubeClient | unable to build config from kubeconfig(%s): %v", kubeconfig, err)
 	}
 
 	kubeClient, err := clientset.NewForConfig(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("Func: CreateKubeClient | failed to create a new Clientset: %v ", err)
+		return nil, fmt.Errorf("CreateKubeClient | failed to create a new Clientset from kubeconfig(%s): %v ", kubeconfig, err)
 	}
 	return kubeClient, nil
 }
@@ -822,18 +832,18 @@ func CreateKubeClient(kubeconfig string) (*clientset.Clientset, error) {
 func GetMasterFromKubeConfig(filename string) (string, error) {
 	config, err := clientcmd.LoadFromFile(filename)
 	if err != nil {
-		return "", fmt.Errorf("Func: GetMasterFromKubeConfig | can not load kubeconfig file: %v ", err)
+		return "", fmt.Errorf("GetMasterFromKubeConfig | can not load kubeconfig file(%s): %v ", filename, err)
 	}
 
 	context, ok := config.Contexts[config.CurrentContext]
 	if !ok {
-		return "", fmt.Errorf("Func: GetMasterFromKubeConfig | Failed to get master address from kubeconfig ")
+		return "", fmt.Errorf("GetMasterFromKubeConfig | failed to get master address from kubeconfig(%s)", filename)
 	}
 
 	if val, ok := config.Clusters[context.Cluster]; ok {
 		return val.Server, nil
 	}
-	return "", fmt.Errorf("Func: GetMasterFromKubeConfig | Failed to get master address from kubeconfig ")
+	return "", fmt.Errorf("GetMasterFromKubeConfig | failed to get master address from kubeconfig(%s)", filename)
 }
 
 func SetDaemonSetPodNodeNameByNodeAffinity(affinity *corev1.Affinity, nodename string) *corev1.Affinity {

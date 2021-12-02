@@ -46,7 +46,6 @@ func (plugin *LocalPlugin) Name() string {
 	return simontype.OpenLocalPluginName
 }
 
-// Score invoked at the score extension point.
 func (plugin *LocalPlugin) Filter(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
 	// check if the pod needs storage resources
 	lvmPVCs, devicePVCs := utils.GetPodLocalPVCs(pod)
@@ -59,7 +58,7 @@ func (plugin *LocalPlugin) Filter(ctx context.Context, state *framework.CycleSta
 	node := nodeInfo.Node()
 	nc, err := utils.GetNodeCache(node)
 	if err != nil {
-		return framework.NewStatus(framework.Error, err.Error())
+		return framework.NewStatus(framework.Error, fmt.Sprintf("Filter | %v", err))
 	} else if nc == nil {
 		// the node is unscheduable when:
 		// 1. node does not have storage resources
@@ -74,18 +73,19 @@ func (plugin *LocalPlugin) Filter(ctx context.Context, state *framework.CycleSta
 	// process Open-Local LVM
 	fits, _, err := localalgo.ProcessLVMPVCPredicate(lvmPVCs, nodeInfo.Node(), schedulingContext)
 	if !fits {
-		return framework.NewStatus(framework.Unschedulable, err.Error())
+		return framework.NewStatus(framework.Unschedulable, fmt.Sprintf("Filter | %v", err))
 	}
 
 	// process Open-Local Device
 	fits, _, err = localalgo.ProcessDevicePVC(nil, devicePVCs, nodeInfo.Node(), schedulingContext)
 	if !fits {
-		return framework.NewStatus(framework.Unschedulable, err.Error())
+		return framework.NewStatus(framework.Unschedulable, fmt.Sprintf("Filter | %v", err))
 	}
 
 	return framework.NewStatus(framework.Success)
 }
 
+// Score invoked at the score extension point.
 func (plugin *LocalPlugin) Score(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) (int64, *framework.Status) {
 	node, _ := plugin.fakeclient.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
 	// check if the pod needs storage resources
@@ -98,7 +98,7 @@ func (plugin *LocalPlugin) Score(ctx context.Context, state *framework.CycleStat
 	// check if the node have storage resources
 	nc, err := utils.GetNodeCache(node)
 	if err != nil {
-		return int64(localpriorities.MinScore), framework.NewStatus(framework.Error, err.Error())
+		return int64(localpriorities.MinScore), framework.NewStatus(framework.Error, fmt.Sprintf("Score | %v", err))
 	} else if nc == nil {
 		nodeExist = false
 	}
@@ -111,7 +111,7 @@ func (plugin *LocalPlugin) Score(ctx context.Context, state *framework.CycleStat
 		if !podExist {
 			return int64(localpriorities.MaxScore), framework.NewStatus(framework.Success)
 		} else {
-			return int64(localpriorities.MinScore), framework.NewStatus(framework.Unschedulable, fmt.Sprintf("no local storage found in node %s", node.Name))
+			return int64(localpriorities.MinScore), framework.NewStatus(framework.Unschedulable, fmt.Sprintf("Score | no local storage found in node %s", node.Name))
 		}
 	} else {
 		if !podExist {
@@ -126,13 +126,13 @@ func (plugin *LocalPlugin) Score(ctx context.Context, state *framework.CycleStat
 	// process Open-Local LVM
 	score1, _, err := localalgo.ScoreLVMVolume(nil, lvmPVCs, node, schedulingContext)
 	if err != nil {
-		return int64(localpriorities.MinScore), framework.NewStatus(framework.Error, err.Error())
+		return int64(localpriorities.MinScore), framework.NewStatus(framework.Error, fmt.Sprintf("Score | %v", err))
 	}
 
 	// process Open-Local Device
 	score2, _, err := localalgo.ScoreDeviceVolume(nil, devicePVCs, node, schedulingContext)
 	if err != nil {
-		return int64(localpriorities.MinScore), framework.NewStatus(framework.Error, err.Error())
+		return int64(localpriorities.MinScore), framework.NewStatus(framework.Error, fmt.Sprintf("Score | %v", err))
 	}
 
 	return int64(score1 + score2), framework.NewStatus(framework.Success)
@@ -185,7 +185,7 @@ func (plugin *LocalPlugin) Bind(ctx context.Context, state *framework.CycleState
 	// check if the node have storage resources
 	nc, err := utils.GetNodeCache(node)
 	if err != nil {
-		return framework.NewStatus(framework.Error, err.Error())
+		return framework.NewStatus(framework.Error, fmt.Sprintf("Bind | %v", err))
 	} else if nc == nil {
 		nodeExist = false
 	}
@@ -204,13 +204,13 @@ func (plugin *LocalPlugin) Bind(ctx context.Context, state *framework.CycleState
 	// process Open-Local LVM
 	_, lvmUnits, err := localalgo.ScoreLVMVolume(nil, lvmPVCs, node, schedulingContext)
 	if err != nil {
-		return framework.NewStatus(framework.Error, err.Error())
+		return framework.NewStatus(framework.Error, fmt.Sprintf("Bind | %v", err))
 	}
 
 	// process Open-Local Device
 	_, deviceUnits, err := localalgo.ScoreDeviceVolume(nil, devicePVCs, node, schedulingContext)
 	if err != nil {
-		return framework.NewStatus(framework.Error, err.Error())
+		return framework.NewStatus(framework.Error, fmt.Sprintf("Bind | %v", err))
 	}
 
 	log.Debugf("bind  units1 %d, units2 %d\n", len(lvmUnits), len(deviceUnits))
@@ -220,7 +220,7 @@ func (plugin *LocalPlugin) Bind(ctx context.Context, state *framework.CycleState
 	// update annotation in node
 	nodeStorage, err := utils.GetNodeStorage(node)
 	if err != nil {
-		return framework.NewStatus(framework.Error, err.Error())
+		return framework.NewStatus(framework.Error, fmt.Sprintf("Bind | %v", err))
 	}
 	for i := range units {
 		if units[i].VolumeType == localtype.VolumeTypeLVM {
@@ -247,7 +247,7 @@ func (plugin *LocalPlugin) Bind(ctx context.Context, state *framework.CycleState
 
 	// update Node
 	if _, err := plugin.fakeclient.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{}); err != nil {
-		return framework.NewStatus(framework.Error, err.Error())
+		return framework.NewStatus(framework.Error, fmt.Sprintf("Bind | update error:%v", err))
 	}
 
 	// should always skip

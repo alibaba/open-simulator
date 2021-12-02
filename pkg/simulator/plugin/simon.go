@@ -48,7 +48,7 @@ func (plugin *SimonPlugin) Score(ctx context.Context, state *framework.CycleStat
 
 	node, err := plugin.fakeclient.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
 	if err != nil {
-		return framework.MinNodeScore, framework.NewStatus(framework.Error, err.Error())
+		return framework.MinNodeScore, framework.NewStatus(framework.Error, fmt.Sprintf("Score | %v", err))
 	}
 
 	res := float64(0)
@@ -104,8 +104,8 @@ func (plugin *SimonPlugin) BindPodToNode(ctx context.Context, state *framework.C
 	// Step 1: update pod info
 	pod, err := plugin.fakeclient.CoreV1().Pods(p.Namespace).Get(context.TODO(), p.Name, metav1.GetOptions{})
 	if err != nil {
-		log.Errorf("fake get error %v", err)
-		return framework.NewStatus(framework.Error, fmt.Sprintf("Unable to bind: %v", err))
+		log.Errorf("BindPodToNode | get pod error %v", err)
+		return framework.NewStatus(framework.Error, fmt.Sprintf("BindPodToNode | unable to bind: %v", err))
 	}
 	updatedPod := pod.DeepCopy()
 	updatedPod.Spec.NodeName = nodeName
@@ -116,8 +116,8 @@ func (plugin *SimonPlugin) BindPodToNode(ctx context.Context, state *framework.C
 	// so the update is needed to emit update event in case a handler is registered
 	_, err = plugin.fakeclient.CoreV1().Pods(pod.Namespace).Update(context.TODO(), updatedPod, metav1.UpdateOptions{})
 	if err != nil {
-		log.Errorf("fake update error %v", err)
-		return framework.NewStatus(framework.Error, fmt.Sprintf("Unable to add new pod: %v", err))
+		log.Errorf("BindPodToNode | update error %v", err)
+		return framework.NewStatus(framework.Error, fmt.Sprintf("BindPodToNode | unable to add new pod: %v", err))
 	}
 
 	return nil

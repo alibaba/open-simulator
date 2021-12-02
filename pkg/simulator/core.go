@@ -1,6 +1,8 @@
 package simulator
 
 import (
+	"fmt"
+	"github.com/alibaba/open-simulator/pkg/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
@@ -63,15 +65,27 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 	// init simulator
 	sim, err := New(opts...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Simulate | %v ", err)
 	}
 	defer sim.Close()
+
+	cluster.Pods, err = GetValidPodExcludeDaemonSet(cluster)
+	if err != nil {
+		return nil, fmt.Errorf("Simulate | %v ", err)
+	}
+	for _, item := range cluster.DaemonSets {
+		validPods, err := utils.MakeValidPodsByDaemonset(item, cluster.Nodes)
+		if err != nil {
+			return nil, fmt.Errorf("Simulate | %v ", err)
+		}
+		cluster.Pods = append(cluster.Pods, validPods...)
+	}
 
 	var failedPods []UnscheduledPod
 	// run cluster
 	result, err := sim.RunCluster(cluster)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Simulate | %v ", err)
 	}
 	failedPods = append(failedPods, result.UnscheduledPods...)
 
@@ -79,7 +93,7 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 	for _, app := range apps {
 		result, err = sim.ScheduleApp(app)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Simulate | %v ", err)
 		}
 		failedPods = append(failedPods, result.UnscheduledPods...)
 	}

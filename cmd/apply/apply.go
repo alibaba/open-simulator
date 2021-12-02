@@ -17,7 +17,7 @@ var ApplyCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		applier := applypkg.NewApplier(options)
 		if err := applier.Run(); err != nil {
-			fmt.Printf("apply error: %s", err.Error())
+			fmt.Printf("Apply error: %v", err)
 			os.Exit(1)
 		}
 	},
@@ -30,6 +30,6 @@ func init() {
 	ApplyCmd.Flags().BoolVarP(&options.Interactive, "interactive", "i", false, "interactive mode")
 
 	if err := ApplyCmd.MarkFlagRequired("simon-config"); err != nil {
-		log.Fatal("init ApplyCmd on simon-config flag failed")
+		log.Fatal("init | init ApplyCmd on simon-config flag failed")
 	}
 }

@@ -32,7 +32,7 @@ func init() {
 
 func (c *GenerateDoc) generateDocument() error {
 	if _, err := os.Stat(c.outputDir); err != nil {
-		return fmt.Errorf("Func: generateDocument | Invalid output directory(%s) ", c.outputDir)
+		return fmt.Errorf("generateDocument | Invalid output directory(%s) ", c.outputDir)
 	}
 	return doc.GenMarkdownTree(c.DocCmd.Parent(), c.outputDir)
 }
