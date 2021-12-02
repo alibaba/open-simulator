@@ -49,15 +49,15 @@ func NewApplier(opts Options) Interface {
 	simonCR := &v1alpha1.Simon{}
 	configFile, err := ioutil.ReadFile(opts.SimonConfig)
 	if err != nil {
-		log.Fatalf("failed to read config file(%s): %v", opts.SimonConfig, err)
+		log.Fatalf("Func: NewApplier | failed to read config file(%s): %v", opts.SimonConfig, err)
 	}
 	configJSON, err := yaml.YAMLToJSON(configFile)
 	if err != nil {
-		log.Fatalf("failed to unmarshal config file(%s) to json: %v", opts.SimonConfig, err)
+		log.Fatalf("Func: NewApplier | failed to unmarshal config file(%s) to json: %v", opts.SimonConfig, err)
 	}
 
 	if err := json.Unmarshal(configJSON, simonCR); err != nil {
-		log.Fatalf("failed to unmarshal config json to object: %v", err)
+		log.Fatalf("Func: NewApplier | failed to unmarshal config json to object: %v", err)
 	}
 
 	applier := &Applier{
@@ -92,11 +92,11 @@ func (applier *Applier) Run() (err error) {
 		if app.Chart {
 			// parse and render chart as a yaml array
 			if content, err = chart.ProcessChart(app.Name, app.Path); err != nil {
-				return fmt.Errorf("failed to process chart(%s): %v", app.Name, err)
+				return err
 			}
 		} else {
 			if content, err = utils.GetYamlContentFromDirectory(app.Path); err != nil {
-				return fmt.Errorf("failed to get the yaml content from the application directory(%s): %v", app.Path, err)
+				return err
 			}
 		}
 		if appResource, err = simulator.GetObjectFromYamlContent(content); err != nil {
@@ -114,7 +114,7 @@ func (applier *Applier) Run() (err error) {
 		// generate kube-client
 		kubeclient, err := utils.CreateKubeClient(applier.cluster.KubeConfig)
 		if err != nil {
-			return fmt.Errorf("Failed to create kubeclient: %v ", err)
+			return err
 		}
 		if clusterResource, err = simulator.CreateClusterResourceFromClient(kubeclient); err != nil {
 			return err
@@ -129,13 +129,13 @@ func (applier *Applier) Run() (err error) {
 	// only support temporarily one type of node at present
 	var nodeResource simulator.ResourceTypes
 	if content, err = utils.GetYamlContentFromDirectory(applier.newNode); err != nil {
-		return fmt.Errorf("failed to get the Yaml content: %v", err)
+		return err
 	}
 	if nodeResource, err = simulator.GetObjectFromYamlContent(content); err != nil {
-		return fmt.Errorf("failed to get object: %v", err)
+		return err
 	}
 	if len(nodeResource.Nodes) == 0 {
-		return fmt.Errorf("the new node directory(%s) has no nodes", applier.newNode)
+		return fmt.Errorf("Func: Run | the new node directory(%s) has no nodes ", applier.newNode)
 	}
 	simulator.MatchAndSetStorageAnnotationOnNode(nodeResource.Nodes, applier.newNode)
 
@@ -154,7 +154,7 @@ func (applier *Applier) Run() (err error) {
 		}
 		err = survey.Ask(multiQs, &selectedAppNameList)
 		if err != nil {
-			log.Fatal(err.Error())
+			log.Fatal("Func: Run | %v", err)
 		}
 	} else {
 		selectedAppNameList = resourceList
@@ -211,7 +211,9 @@ func (applier *Applier) Run() (err error) {
 					fmt.Printf(utils.ColorReset)
 					return nil
 				}
-				if !utils.MeetResourceRequests(newNode, unScheduledPod.Pod, allDaemonSets) {
+				if m, err := utils.MeetResourceRequests(newNode, unScheduledPod.Pod, allDaemonSets); err != nil {
+					return err
+				} else if !m {
 					fmt.Printf(utils.ColorRed+"schedule pod %s/%s failed: new node cannot meet resource requests of pod: the total requested resource of daemonset pods in new node is too large\n"+utils.ColorReset, unScheduledPod.Pod.Namespace, unScheduledPod.Pod.Name)
 					fmt.Printf(utils.ColorRed)
 					report(result.NodeStatus)
@@ -237,36 +239,36 @@ func (applier *Applier) Run() (err error) {
 func validate(applier *Applier) error {
 	if len(applier.cluster.KubeConfig) == 0 && len(applier.cluster.CustomCluster) == 0 ||
 		len(applier.cluster.KubeConfig) != 0 && len(applier.cluster.CustomCluster) != 0 {
-		return fmt.Errorf("only one of values of both kubeConfig and customConfig must exist")
+		return fmt.Errorf("Func: validate | only one of values of both kubeConfig and customConfig must exist ")
 	}
 
 	if len(applier.cluster.KubeConfig) != 0 {
 		if _, err := os.Stat(applier.cluster.KubeConfig); err != nil {
-			return fmt.Errorf("invalid path of kubeConfig: %v", err)
+			return fmt.Errorf("Func: validate | invalid path of kubeConfig: %v ", err)
 		}
 	}
 
 	if len(applier.cluster.CustomCluster) != 0 {
 		if _, err := os.Stat(applier.cluster.CustomCluster); err != nil {
-			return fmt.Errorf("invalid path of customConfig: %v", err)
+			return fmt.Errorf("Func: validate | invalid path of customConfig: %v ", err)
 		}
 	}
 
 	if len(applier.schedulerConfig) != 0 {
 		if _, err := os.Stat(applier.schedulerConfig); err != nil {
-			return fmt.Errorf("invalid path of scheduler config: %v", err)
+			return fmt.Errorf("Func: validate | invalid path of scheduler config: %v ", err)
 		}
 	}
 
 	if len(applier.newNode) != 0 {
 		if _, err := os.Stat(applier.newNode); err != nil {
-			return fmt.Errorf("invalid path of newNode: %v", err)
+			return fmt.Errorf("Func: validate | invalid path of newNode: %v ", err)
 		}
 	}
 
 	for _, app := range applier.appList {
 		if _, err := os.Stat(app.Path); err != nil {
-			return fmt.Errorf("invalid path of %s app: %v", app.Name, err)
+			return fmt.Errorf("Func: validate | invalid path of %s app: %v ", app.Name, err)
 		}
 	}
 
@@ -275,16 +277,19 @@ func validate(applier *Applier) error {
 
 func newFakeNodes(node *corev1.Node, nodeCount int) ([]*corev1.Node, error) {
 	if node == nil {
-		return nil, fmt.Errorf("node is nil")
+		return nil, fmt.Errorf("Func: newFakeNodes | node is nil ")
 	}
 
 	var nodes []*corev1.Node
 	// make fake nodes
 	for i := 0; i < nodeCount; i++ {
 		hostname := fmt.Sprintf("%s-%02d", simontype.NewNodeNamePrefix, i)
-		node := utils.MakeValidNodeByNode(node, hostname)
-		metav1.SetMetaDataLabel(&node.ObjectMeta, simontype.LabelNewNode, "")
-		nodes = append(nodes, node.DeepCopy())
+		validNode, err := utils.MakeValidNodeByNode(node, hostname)
+		if err != nil {
+			return nil, err
+		}
+		metav1.SetMetaDataLabel(&validNode.ObjectMeta, simontype.LabelNewNode, "")
+		nodes = append(nodes, validNode.DeepCopy())
 	}
 	return nodes, nil
 }
@@ -414,7 +419,7 @@ func report(nodeStatuses []simulator.NodeStatus) {
 		if nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]; exist {
 			var nodeStorage utils.NodeStorage
 			if err := ffjson.Unmarshal([]byte(nodeStorageStr), &nodeStorage); err != nil {
-				log.Fatalf("err when unmarshal json data, node is %s\n", node.Name)
+				log.Fatalf("Func: report | error when unmarshal json data, node is %s\n", node.Name)
 			}
 			var storageData []string
 			for _, vg := range nodeStorage.VGs {
@@ -460,7 +465,7 @@ func satisfyResourceSetting(nodeStatuses []simulator.NodeStatus) (bool, string, 
 	var maxvg int = 100
 	if str := os.Getenv(simontype.EnvMaxCPU); str != "" {
 		if maxcpu, err = strconv.Atoi(str); err != nil {
-			return false, "", fmt.Errorf("convert env %s to int failed: %s", simontype.EnvMaxCPU, err.Error())
+			return false, "", fmt.Errorf("Func: satisfyResourceSetting | convert env %s to int failed: %s ", simontype.EnvMaxCPU, err.Error())
 		}
 		if maxcpu > 100 || maxcpu < 0 {
 			maxcpu = 100
@@ -469,7 +474,7 @@ func satisfyResourceSetting(nodeStatuses []simulator.NodeStatus) (bool, string, 
 
 	if str := os.Getenv(simontype.EnvMaxMemory); str != "" {
 		if maxmem, err = strconv.Atoi(str); err != nil {
-			return false, "", fmt.Errorf("convert env %s to int failed: %s", simontype.EnvMaxMemory, err.Error())
+			return false, "", fmt.Errorf("Func: satisfyResourceSetting | convert env %s to int failed: %s ", simontype.EnvMaxMemory, err.Error())
 		}
 		if maxmem > 100 || maxmem < 0 {
 			maxmem = 100
@@ -478,7 +483,7 @@ func satisfyResourceSetting(nodeStatuses []simulator.NodeStatus) (bool, string, 
 
 	if str := os.Getenv(simontype.EnvMaxVG); str != "" {
 		if maxvg, err = strconv.Atoi(str); err != nil {
-			return false, "", fmt.Errorf("convert env %s to int failed: %s", simontype.EnvMaxVG, err.Error())
+			return false, "", fmt.Errorf("Func: satisfyResourceSetting | convert env %s to int failed: %s ", simontype.EnvMaxVG, err.Error())
 		}
 		if maxvg > 100 || maxvg < 0 {
 			maxvg = 100
@@ -513,7 +518,7 @@ func satisfyResourceSetting(nodeStatuses []simulator.NodeStatus) (bool, string, 
 		if nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]; exist {
 			var nodeStorage utils.NodeStorage
 			if err := ffjson.Unmarshal([]byte(nodeStorageStr), &nodeStorage); err != nil {
-				return false, "", fmt.Errorf("err when unmarshal json data, node is %s\n", node.Name)
+				return false, "", fmt.Errorf("Func: satisfyResourceSetting | error when unmarshal json data, node is %s\n", node.Name)
 			}
 			for _, vg := range nodeStorage.VGs {
 				totalVGResource.Requested += vg.Requested
@@ -525,16 +530,16 @@ func satisfyResourceSetting(nodeStatuses []simulator.NodeStatus) (bool, string, 
 	cpuOccupancyRate := int(float64(totalUsedResource[corev1.ResourceCPU].MilliValue()) / float64(totalAllocatableResource[corev1.ResourceCPU].MilliValue()) * 100)
 	memoryOccupancyRate := int(float64(totalUsedResource[corev1.ResourceMemory].MilliValue()) / float64(totalAllocatableResource[corev1.ResourceMemory].MilliValue()) * 100)
 	if cpuOccupancyRate > maxcpu {
-		return false, fmt.Sprintf("the average occupancy rate(%d%%) of cpu goes beyond the env setting(%d%%)\n", cpuOccupancyRate, maxcpu), nil
+		return false, fmt.Sprintf("Func: satisfyResourceSetting | the average occupancy rate(%d%%) of cpu goes beyond the env setting(%d%%)\n", cpuOccupancyRate, maxcpu), nil
 	}
 	if memoryOccupancyRate > maxmem {
-		return false, fmt.Sprintf("the average occupancy rate(%d%%) of memory goes beyond the env setting(%d%%)\n", memoryOccupancyRate, maxmem), nil
+		return false, fmt.Sprintf("Func: satisfyResourceSetting | the average occupancy rate(%d%%) of memory goes beyond the env setting(%d%%)\n", memoryOccupancyRate, maxmem), nil
 	}
 
 	if totalVGResource.Capacity != 0 {
 		vgOccupancyRate := int(float64(totalVGResource.Requested) / float64(totalVGResource.Capacity) * 100)
 		if vgOccupancyRate > maxvg {
-			return false, fmt.Sprintf("the average occupancy rate(%d%%) of vg goes beyond the env setting(%d%%)\n", vgOccupancyRate, maxvg), nil
+			return false, fmt.Sprintf("Func: satisfyResourceSetting | the average occupancy rate(%d%%) of vg goes beyond the env setting(%d%%)\n", vgOccupancyRate, maxvg), nil
 		}
 	}
 

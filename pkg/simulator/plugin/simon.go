@@ -3,9 +3,6 @@ package plugin
 import (
 	"context"
 	"fmt"
-	"math"
-	"os"
-
 	"github.com/alibaba/open-simulator/pkg/algo"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	log "github.com/sirupsen/logrus"
@@ -15,6 +12,7 @@ import (
 	externalclientset "k8s.io/client-go/kubernetes"
 	resourcehelper "k8s.io/kubectl/pkg/util/resource"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework"
+	"math"
 )
 
 // SimonPlugin is a plugin for scheduling framework
@@ -50,8 +48,7 @@ func (plugin *SimonPlugin) Score(ctx context.Context, state *framework.CycleStat
 
 	node, err := plugin.fakeclient.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
 	if err != nil {
-		fmt.Printf("get node %s failed: %s\n", nodeName, err.Error())
-		os.Exit(1)
+		return framework.MinNodeScore, framework.NewStatus(framework.Error, err.Error())
 	}
 
 	res := float64(0)

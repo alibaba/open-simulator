@@ -57,8 +57,10 @@ func (plugin *LocalPlugin) Filter(ctx context.Context, state *framework.CycleSta
 
 	// check if the node have storage resources
 	node := nodeInfo.Node()
-	nc := utils.GetNodeCache(node)
-	if nc == nil {
+	nc, err := utils.GetNodeCache(node)
+	if err != nil {
+		return framework.NewStatus(framework.Error, err.Error())
+	} else if nc == nil {
 		// the node is unscheduable when:
 		// 1. node does not have storage resources
 		// 2. pod does not require storage resources
@@ -94,8 +96,10 @@ func (plugin *LocalPlugin) Score(ctx context.Context, state *framework.CycleStat
 	}
 
 	// check if the node have storage resources
-	nc := utils.GetNodeCache(node)
-	if nc == nil {
+	nc, err := utils.GetNodeCache(node)
+	if err != nil {
+		return int64(localpriorities.MinScore), framework.NewStatus(framework.Error, err.Error())
+	} else if nc == nil {
 		nodeExist = false
 	}
 
@@ -179,8 +183,10 @@ func (plugin *LocalPlugin) Bind(ctx context.Context, state *framework.CycleState
 	}
 
 	// check if the node have storage resources
-	nc := utils.GetNodeCache(node)
-	if nc == nil {
+	nc, err := utils.GetNodeCache(node)
+	if err != nil {
+		return framework.NewStatus(framework.Error, err.Error())
+	} else if nc == nil {
 		nodeExist = false
 	}
 
@@ -212,7 +218,10 @@ func (plugin *LocalPlugin) Bind(ctx context.Context, state *framework.CycleState
 	units := append(lvmUnits, deviceUnits...)
 
 	// update annotation in node
-	nodeStorage := utils.GetNodeStorage(node)
+	nodeStorage, err := utils.GetNodeStorage(node)
+	if err != nil {
+		return framework.NewStatus(framework.Error, err.Error())
+	}
 	for i := range units {
 		if units[i].VolumeType == localtype.VolumeTypeLVM {
 			for j := range nodeStorage.VGs {

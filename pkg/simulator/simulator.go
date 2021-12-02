@@ -161,7 +161,10 @@ func (sim *Simulator) RunCluster(cluster ResourceTypes) (*SimulateResult, error)
 
 func (sim *Simulator) ScheduleApp(apps AppResource) (*SimulateResult, error) {
 	// 由 AppResource 生成 Pods
-	appPods := GenerateValidPodsFromAppResources(sim.fakeclient, apps.Name, apps.Resource)
+	appPods, err := GenerateValidPodsFromAppResources(sim.fakeclient, apps.Name, apps.Resource)
+	if err != nil {
+		return nil, err
+	}
 	affinityPriority := algo.NewAffinityQueue(appPods)
 	sort.Sort(affinityPriority)
 	tolerationPriority := algo.NewTolerationQueue(appPods)
@@ -364,7 +367,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 	var err error
 	nodeItems, err := client.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("unable to list nodes: %v", err)
+		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list nodes: %v ", err)
 	}
 	for _, item := range nodeItems.Items {
 		newItem := item
@@ -373,7 +376,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	podItems, err := client.CoreV1().Pods(metav1.NamespaceAll).List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("unable to list pods: %v", err)
+		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list pods: %v ", err)
 	}
 	for _, item := range podItems.Items {
 		newItem := item
@@ -382,7 +385,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	pdbItems, err := client.PolicyV1beta1().PodDisruptionBudgets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("unable to list PDBs: %v", err)
+		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list PDBs: %v ", err)
 	}
 	for _, item := range pdbItems.Items {
 		newItem := item
@@ -391,7 +394,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	serviceItems, err := client.CoreV1().Services(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("unable to list services: %v", err)
+		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list services: %v ", err)
 	}
 	for _, item := range serviceItems.Items {
 		newItem := item
@@ -400,7 +403,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	storageClassesItems, err := client.StorageV1().StorageClasses().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("unable to list storage classes: %v", err)
+		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list storage classes: %v ", err)
 	}
 	for _, item := range storageClassesItems.Items {
 		newItem := item
@@ -409,7 +412,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	pvcItems, err := client.CoreV1().PersistentVolumeClaims(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("unable to list pvcs: %v", err)
+		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list pvcs: %v ", err)
 	}
 	for _, item := range pvcItems.Items {
 		newItem := item
@@ -418,7 +421,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	rcItems, err := client.CoreV1().ReplicationControllers(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("unable to list RCs: %v", err)
+		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list RCs: %v ", err)
 	}
 	for _, item := range rcItems.Items {
 		newItem := item
@@ -427,7 +430,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	deploymentItems, err := client.AppsV1().Deployments(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("unable to list deployment: %v", err)
+		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list deployment: %v ", err)
 	}
 	for _, item := range deploymentItems.Items {
 		newItem := item
@@ -436,7 +439,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	replicaSetItems, err := client.AppsV1().ReplicaSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("unable to list replicas sets: %v", err)
+		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list replicas sets: %v ", err)
 	}
 	for _, item := range replicaSetItems.Items {
 		newItem := item
@@ -445,7 +448,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	statefulSetItems, err := client.AppsV1().StatefulSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("unable to list stateful sets: %v", err)
+		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list stateful sets: %v ", err)
 	}
 	for _, item := range statefulSetItems.Items {
 		newItem := item
@@ -454,7 +457,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 
 	daemonSetItems, err := client.AppsV1().DaemonSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return resource, fmt.Errorf("unable to list daemon sets: %v", err)
+		return resource, fmt.Errorf("Func: CreateClusterResourceFromClient | unable to list daemon sets: %v ", err)
 	}
 	for _, item := range daemonSetItems.Items {
 		newItem := item
@@ -472,16 +475,23 @@ func CreateClusterResourceFromClusterConfig(path string) (ResourceTypes, error) 
 	var err error
 
 	if content, err = utils.GetYamlContentFromDirectory(path); err != nil {
-		return ResourceTypes{}, fmt.Errorf("failed to get the yaml content from the cluster directory(%s): %v", path, err)
+		return ResourceTypes{}, err
 	}
 	if resource, err = GetObjectFromYamlContent(content); err != nil {
 		return resource, err
 	}
 
-	resource.Pods = GetValidPodExcludeDaemonSet(resource)
+	resource.Pods, err = GetValidPodExcludeDaemonSet(resource)
+	if err != nil {
+		return ResourceTypes{}, err
+	}
 	for _, item := range resource.DaemonSets {
 		metav1.SetMetaDataLabel(&item.ObjectMeta, simontype.LabelDaemonSetFromCluster, "")
-		resource.Pods = append(resource.Pods, utils.MakeValidPodsByDaemonset(item, resource.Nodes)...)
+		validPods, err := utils.MakeValidPodsByDaemonset(item, resource.Nodes)
+		if err != nil {
+			return ResourceTypes{}, err
+		}
+		resource.Pods = append(resource.Pods, validPods...)
 	}
 	MatchAndSetStorageAnnotationOnNode(resource.Nodes, path)
 
