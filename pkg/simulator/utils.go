@@ -36,7 +36,7 @@ func GenerateValidPodsFromAppResources(client externalclientset.Interface, appna
 	pods := make([]*corev1.Pod, 0)
 	validPods, err := GetValidPodExcludeDaemonSet(resources)
 	if err != nil {
-		return nil, fmt.Errorf("GenerateValidPodsFromAppResources | %v", err)
+		return nil, err
 	}
 	pods = append(pods, validPods...)
 
@@ -46,7 +46,7 @@ func GenerateValidPodsFromAppResources(client externalclientset.Interface, appna
 	// get all nodes
 	nodeItems, err := client.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("GenerateValidPodsFromAppResources | failed to list nodes: %v ", err)
+		return nil, fmt.Errorf("failed to list nodes: %v ", err)
 	}
 	for _, item := range nodeItems.Items {
 		newItem := item
@@ -58,7 +58,7 @@ func GenerateValidPodsFromAppResources(client externalclientset.Interface, appna
 		newItem := item
 		validPods, err := utils.MakeValidPodsByDaemonset(newItem, nodes)
 		if err != nil {
-			return nil, fmt.Errorf("GenerateValidPodsFromAppResources | %v", err)
+			return nil, err
 		}
 		pods = append(pods, validPods...)
 	}
@@ -78,7 +78,7 @@ func GetValidPodExcludeDaemonSet(resources ResourceTypes) ([]*corev1.Pod, error)
 	for _, item := range resources.Pods {
 		validPod, err := utils.MakeValidPodByPod(item)
 		if err != nil {
-			return nil, fmt.Errorf("GetValidPodExcludeDaemonSet | %v", err)
+			return nil, err
 		}
 		pods = append(pods, validPod)
 	}
@@ -86,7 +86,7 @@ func GetValidPodExcludeDaemonSet(resources ResourceTypes) ([]*corev1.Pod, error)
 	for _, deploy := range resources.Deployments {
 		validPods, err := utils.MakeValidPodsByDeployment(deploy)
 		if err != nil {
-			return nil, fmt.Errorf("GetValidPodExcludeDaemonSet | %v", err)
+			return nil, err
 		}
 		pods = append(pods, validPods...)
 	}
@@ -94,7 +94,7 @@ func GetValidPodExcludeDaemonSet(resources ResourceTypes) ([]*corev1.Pod, error)
 	for _, rs := range resources.ReplicaSets {
 		validPods, err := utils.MakeValidPodsByReplicaSet(rs)
 		if err != nil {
-			return nil, fmt.Errorf("GetValidPodExcludeDaemonSet | %v", err)
+			return nil, err
 		}
 		pods = append(pods, validPods...)
 	}
@@ -102,7 +102,7 @@ func GetValidPodExcludeDaemonSet(resources ResourceTypes) ([]*corev1.Pod, error)
 	for _, rc := range resources.ReplicationControllers {
 		validPods, err := utils.MakeValidPodsByReplicationController(rc)
 		if err != nil {
-			return nil, fmt.Errorf("GetValidPodExcludeDaemonSet | %v", err)
+			return nil, err
 		}
 		pods = append(pods, validPods...)
 	}
@@ -110,7 +110,7 @@ func GetValidPodExcludeDaemonSet(resources ResourceTypes) ([]*corev1.Pod, error)
 	for _, sts := range resources.StatefulSets {
 		validPods, err := utils.MakeValidPodsByStatefulSet(sts)
 		if err != nil {
-			return nil, fmt.Errorf("GetValidPodExcludeDaemonSet | %v", err)
+			return nil, err
 		}
 		pods = append(pods, validPods...)
 	}
@@ -118,7 +118,7 @@ func GetValidPodExcludeDaemonSet(resources ResourceTypes) ([]*corev1.Pod, error)
 	for _, job := range resources.Jobs {
 		validPods, err := utils.MakeValidPodByJob(job)
 		if err != nil {
-			return nil, fmt.Errorf("GetValidPodExcludeDaemonSet | %v", err)
+			return nil, err
 		}
 		pods = append(pods, validPods...)
 	}
@@ -126,7 +126,7 @@ func GetValidPodExcludeDaemonSet(resources ResourceTypes) ([]*corev1.Pod, error)
 	for _, cronjob := range resources.CronJobs {
 		validPods, err := utils.MakeValidPodByCronJob(cronjob)
 		if err != nil {
-			return nil, fmt.Errorf("GetValidPodExcludeDaemonSet | %v", err)
+			return nil, err
 		}
 		pods = append(pods, validPods...)
 	}
@@ -141,7 +141,7 @@ func GetObjectFromYamlContent(ymlStr []string) (ResourceTypes, error) {
 	for _, res := range ymlStr {
 		objects, err := utils.DecodeYamlContent([]byte(res))
 		if err != nil {
-			return ResourceTypes{}, fmt.Errorf("GetObjectFromYamlContent | %v", err)
+			return ResourceTypes{}, err
 		}
 		for _, obj := range objects {
 			switch o := obj.(type) {
@@ -172,7 +172,7 @@ func GetObjectFromYamlContent(ymlStr []string) (ResourceTypes, error) {
 			case *v1beta1.PodDisruptionBudget:
 				resources.PodDisruptionBudgets = append(resources.PodDisruptionBudgets, o)
 			default:
-				log.Debugf("GetObjectFromYamlContent | unknown type(%T): %s\n", o, ymlStr)
+				log.Debugf("unknown type(%T): %s\n", o, ymlStr)
 				continue
 			}
 		}
@@ -189,7 +189,7 @@ func InitKubeSchedulerConfiguration(opts *schedoptions.Options) (*schedconfig.Co
 	opts.CombinedInsecureServing = nil
 	opts.SecureServing = nil
 	if err := opts.ApplyTo(c); err != nil {
-		return nil, fmt.Errorf("InitKubeSchedulerConfiguration | unable to apply schedoptions to schedconfig: %v", err)
+		return nil, fmt.Errorf("unable to get scheduler config: %v", err)
 	}
 
 	// Get the completed config
@@ -214,7 +214,7 @@ func GetAndSetSchedulerConfig(schedulerConfig string) (*config.CompletedConfig, 
 	kubeschedulerscheme.Scheme.Default(&versionedCfg)
 	kcfg := kubeschedulerconfig.KubeSchedulerConfiguration{}
 	if err := kubeschedulerscheme.Scheme.Convert(&versionedCfg, &kcfg, nil); err != nil {
-		return nil, fmt.Errorf("GetAndSetSchedulerConfig | failed to convert: %v", err)
+		return nil, err
 	}
 	if len(kcfg.Profiles) == 0 {
 		kcfg.Profiles = []kubeschedulerconfig.KubeSchedulerProfile{
@@ -267,7 +267,7 @@ func GetAndSetSchedulerConfig(schedulerConfig string) (*config.CompletedConfig, 
 	}
 	cc, err := InitKubeSchedulerConfiguration(opts)
 	if err != nil {
-		return nil, fmt.Errorf("GetAndSetSchedulerConfig | %v", err)
+		return nil, fmt.Errorf("failed to init kube scheduler configuration: %v ", err)
 	}
 	return cc, nil
 }

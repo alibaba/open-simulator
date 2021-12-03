@@ -18,23 +18,23 @@ import (
 func ProcessChart(name string, chartPath string) ([]string, error) {
 	chartRequested, err := loader.Load(chartPath)
 	if err != nil {
-		return nil, fmt.Errorf("ProcessChart | failed to load chart(%s): %v ", name, err)
+		return nil, err
 	}
 	chartRequested.Metadata.Name = name
 
 	if err := checkIfInstallable(chartRequested); err != nil {
-		return nil, fmt.Errorf("ProcessChart | %v", err)
+		return nil, err
 	}
 
 	// TODO
 	var vals map[string]interface{}
 	if err := chartutil.ProcessDependencies(chartRequested, vals); err != nil {
-		return nil, fmt.Errorf("ProcessChart | failed to process dependencies: %v ", err)
+		return nil, err
 	}
 
 	valuesToRender, err := ToRenderValues(chartRequested, vals)
 	if err != nil {
-		return nil, fmt.Errorf("ProcessChart | %v", err)
+		return nil, err
 	}
 
 	return renderResources(chartRequested, valuesToRender, true)
@@ -47,7 +47,7 @@ func checkIfInstallable(ch *chart.Chart) error {
 	case "", "application":
 		return nil
 	}
-	return fmt.Errorf("checkIfInstallable | %s charts are not installable", ch.Metadata.Type)
+	return fmt.Errorf("%s charts are not installable", ch.Metadata.Type)
 }
 
 // ToRenderValues composes the struct from the data coming from the Releases, Charts and Values files
@@ -65,11 +65,11 @@ func ToRenderValues(chrt *chart.Chart, chrtVals map[string]interface{}) (chartut
 
 	vals, err := chartutil.CoalesceValues(chrt, chrtVals)
 	if err != nil {
-		return top, fmt.Errorf("ToRenderValues | failed to coalesce values to chart(%s):%v ", chrt.Name(), err)
+		return top, err
 	}
 
 	if err := chartutil.ValidateAgainstSchema(chrt, vals); err != nil {
-		errFmt := "ValidateAgainstSchema | values don't meet the specifications of the schema(s) in the following chart(s):\n%s"
+		errFmt := "values don't meet the specifications of the schema(s) in the following chart(s):\n%s"
 		return top, fmt.Errorf(errFmt, err.Error())
 	}
 
@@ -80,7 +80,7 @@ func ToRenderValues(chrt *chart.Chart, chrtVals map[string]interface{}) (chartut
 func renderResources(ch *chart.Chart, values chartutil.Values, subNotes bool) ([]string, error) {
 	files, err := engine.Render(ch, values)
 	if err != nil {
-		return nil, fmt.Errorf("renderResources | failed to render values into chart(%s): %v ", ch.Name(), err)
+		return nil, err
 	}
 
 	// NOTES.txt gets rendered like all the other files, but because it's not a hook nor a resource,
@@ -108,7 +108,7 @@ func renderResources(ch *chart.Chart, values chartutil.Values, subNotes bool) ([
 	var yamlStr []string
 	_, manifests, err := releaseutil.SortManifests(files, []string{}, releaseutil.InstallOrder)
 	if err != nil {
-		return nil, fmt.Errorf("renderResources | failed to sort manifests for chart(%s): %v ", ch.Name(), err)
+		return nil, err
 	}
 	for _, item := range manifests {
 		yamlStr = append(yamlStr, item.Content)

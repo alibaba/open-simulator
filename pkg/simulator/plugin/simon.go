@@ -3,6 +3,8 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"math"
+
 	"github.com/alibaba/open-simulator/pkg/algo"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	log "github.com/sirupsen/logrus"
@@ -12,7 +14,6 @@ import (
 	externalclientset "k8s.io/client-go/kubernetes"
 	resourcehelper "k8s.io/kubectl/pkg/util/resource"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework"
-	"math"
 )
 
 // SimonPlugin is a plugin for scheduling framework
@@ -48,7 +49,7 @@ func (plugin *SimonPlugin) Score(ctx context.Context, state *framework.CycleStat
 
 	node, err := plugin.fakeclient.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
 	if err != nil {
-		return framework.MinNodeScore, framework.NewStatus(framework.Error, fmt.Sprintf("Score | %v", err))
+		return int64(framework.MinNodeScore), framework.NewStatus(framework.Error, fmt.Sprintf("failed to get node %s: %s\n", nodeName, err.Error()))
 	}
 
 	res := float64(0)
@@ -104,8 +105,8 @@ func (plugin *SimonPlugin) BindPodToNode(ctx context.Context, state *framework.C
 	// Step 1: update pod info
 	pod, err := plugin.fakeclient.CoreV1().Pods(p.Namespace).Get(context.TODO(), p.Name, metav1.GetOptions{})
 	if err != nil {
-		log.Errorf("BindPodToNode | get pod error %v", err)
-		return framework.NewStatus(framework.Error, fmt.Sprintf("BindPodToNode | unable to bind: %v", err))
+		log.Errorf("fake get error %v", err)
+		return framework.NewStatus(framework.Error, fmt.Sprintf("Unable to bind: %v", err))
 	}
 	updatedPod := pod.DeepCopy()
 	updatedPod.Spec.NodeName = nodeName
@@ -116,8 +117,8 @@ func (plugin *SimonPlugin) BindPodToNode(ctx context.Context, state *framework.C
 	// so the update is needed to emit update event in case a handler is registered
 	_, err = plugin.fakeclient.CoreV1().Pods(pod.Namespace).Update(context.TODO(), updatedPod, metav1.UpdateOptions{})
 	if err != nil {
-		log.Errorf("BindPodToNode | update error %v", err)
-		return framework.NewStatus(framework.Error, fmt.Sprintf("BindPodToNode | unable to add new pod: %v", err))
+		log.Errorf("fake update error %v", err)
+		return framework.NewStatus(framework.Error, fmt.Sprintf("Unable to add new pod: %v", err))
 	}
 
 	return nil
