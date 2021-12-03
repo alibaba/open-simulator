@@ -162,7 +162,10 @@ func (sim *Simulator) RunCluster(cluster ResourceTypes) (*SimulateResult, error)
 
 func (sim *Simulator) ScheduleApp(apps AppResource) (*SimulateResult, error) {
 	// 由 AppResource 生成 Pods
-	appPods := GenerateValidPodsFromAppResources(sim.fakeclient, apps.Name, apps.Resource)
+	appPods, err := GenerateValidPodsFromAppResources(sim.fakeclient, apps.Name, apps.Resource)
+	if err != nil {
+		return nil, err
+	}
 	affinityPriority := algo.NewAffinityQueue(appPods)
 	sort.Sort(affinityPriority)
 	tolerationPriority := algo.NewTolerationQueue(appPods)
@@ -363,7 +366,7 @@ func WithSchedulerConfig(schedulerConfig string) Option {
 func CreateClusterResourceFromClient(client externalclientset.Interface) (ResourceTypes, error) {
 	var resource ResourceTypes
 	var err error
-	nodeItems, err := client.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
+	nodeItems, err := client.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return resource, fmt.Errorf("unable to list nodes: %v", err)
 	}
@@ -372,9 +375,10 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 		resource.Nodes = append(resource.Nodes, &newItem)
 	}
 
-	// TODO: only get static pods, cause we will generate pod from workload in Simulate function.
-	// we can use IsStaticPod(k8s.io/kubernetes/pkg/kubelet/types/) to check if type of pod is static
-	podItems, err := client.CoreV1().Pods(metav1.NamespaceAll).List(context.Background(), metav1.ListOptions{})
+	// TODO:
+	// For all pods in the real cluster, we only retain static pods.
+	// We will regenerate pods of all workloads in the follow-up stage.
+	podItems, err := client.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return resource, fmt.Errorf("unable to list pods: %v", err)
 	}

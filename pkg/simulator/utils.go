@@ -32,15 +32,22 @@ import (
 )
 
 // GenerateValidPodsFromAppResources generate valid pods from resources
-func GenerateValidPodsFromAppResources(client externalclientset.Interface, appname string, resources ResourceTypes) []*corev1.Pod {
+func GenerateValidPodsFromAppResources(client externalclientset.Interface, appname string, resources ResourceTypes) ([]*corev1.Pod, error) {
 	pods := make([]*corev1.Pod, 0)
-	pods = append(pods, GetValidPodExcludeDaemonSet(resources)...)
+	validPods, err := GetValidPodExcludeDaemonSet(resources)
+	if err != nil {
+		return nil, err
+	}
+	pods = append(pods, validPods...)
 
 	// DaemonSet will match with specific nodes so it needs to be handled separately
 	var nodes []*corev1.Node
 
 	// get all nodes
-	nodeItems, _ := client.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	nodeItems, err := client.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list nodes: %v ", err)
+	}
 	for _, item := range nodeItems.Items {
 		newItem := item
 		nodes = append(nodes, &newItem)
@@ -49,7 +56,11 @@ func GenerateValidPodsFromAppResources(client externalclientset.Interface, appna
 	// get all pods from daemonset
 	for _, item := range resources.DaemonSets {
 		newItem := item
-		pods = append(pods, utils.MakeValidPodsByDaemonset(newItem, nodes)...)
+		validPods, err := utils.MakeValidPodsByDaemonset(newItem, nodes)
+		if err != nil {
+			return nil, err
+		}
+		pods = append(pods, validPods...)
 	}
 
 	// set label
@@ -57,42 +68,70 @@ func GenerateValidPodsFromAppResources(client externalclientset.Interface, appna
 		metav1.SetMetaDataLabel(&pod.ObjectMeta, simontype.LabelAppName, appname)
 	}
 
-	return pods
+	return pods, nil
 }
 
 // GetValidPodExcludeDaemonSet gets valid pod by resources exclude DaemonSet that needs to be handled specially
-func GetValidPodExcludeDaemonSet(resources ResourceTypes) []*corev1.Pod {
+func GetValidPodExcludeDaemonSet(resources ResourceTypes) ([]*corev1.Pod, error) {
 	pods := make([]*corev1.Pod, 0)
 	//get valid pods by pods
 	for _, item := range resources.Pods {
-		pods = append(pods, utils.MakeValidPodByPod(item))
+		validPod, err := utils.MakeValidPodByPod(item)
+		if err != nil {
+			return nil, err
+		}
+		pods = append(pods, validPod)
 	}
 
 	for _, deploy := range resources.Deployments {
-		pods = append(pods, utils.MakeValidPodsByDeployment(deploy)...)
+		validPods, err := utils.MakeValidPodsByDeployment(deploy)
+		if err != nil {
+			return nil, err
+		}
+		pods = append(pods, validPods...)
 	}
 
 	for _, rs := range resources.ReplicaSets {
-		pods = append(pods, utils.MakeValidPodsByReplicaSet(rs)...)
+		validPods, err := utils.MakeValidPodsByReplicaSet(rs)
+		if err != nil {
+			return nil, err
+		}
+		pods = append(pods, validPods...)
 	}
 
 	for _, rc := range resources.ReplicationControllers {
-		pods = append(pods, utils.MakeValidPodsByReplicationController(rc)...)
+		validPods, err := utils.MakeValidPodsByReplicationController(rc)
+		if err != nil {
+			return nil, err
+		}
+		pods = append(pods, validPods...)
 	}
 
 	for _, sts := range resources.StatefulSets {
-		pods = append(pods, utils.MakeValidPodsByStatefulSet(sts)...)
+		validPods, err := utils.MakeValidPodsByStatefulSet(sts)
+		if err != nil {
+			return nil, err
+		}
+		pods = append(pods, validPods...)
 	}
 
 	for _, job := range resources.Jobs {
-		pods = append(pods, utils.MakeValidPodByJob(job)...)
+		validPods, err := utils.MakeValidPodByJob(job)
+		if err != nil {
+			return nil, err
+		}
+		pods = append(pods, validPods...)
 	}
 
 	for _, cronjob := range resources.CronJobs {
-		pods = append(pods, utils.MakeValidPodByCronJob(cronjob)...)
+		validPods, err := utils.MakeValidPodByCronJob(cronjob)
+		if err != nil {
+			return nil, err
+		}
+		pods = append(pods, validPods...)
 	}
 
-	return pods
+	return pods, nil
 }
 
 // GetObjectFromYamlContent decodes the yaml content and returns the kubernetes objects
@@ -102,7 +141,7 @@ func GetObjectFromYamlContent(ymlStr []string) (ResourceTypes, error) {
 	for _, res := range ymlStr {
 		objects, err := utils.DecodeYamlContent([]byte(res))
 		if err != nil {
-			return ResourceTypes{}, fmt.Errorf("failed to decode yaml to k8s object: \n%s\n%v", ymlStr, err)
+			return ResourceTypes{}, err
 		}
 		for _, obj := range objects {
 			switch o := obj.(type) {

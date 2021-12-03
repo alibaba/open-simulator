@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"os"
 
 	"github.com/alibaba/open-simulator/pkg/algo"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
@@ -50,8 +49,7 @@ func (plugin *SimonPlugin) Score(ctx context.Context, state *framework.CycleStat
 
 	node, err := plugin.fakeclient.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
 	if err != nil {
-		fmt.Printf("get node %s failed: %s\n", nodeName, err.Error())
-		os.Exit(1)
+		return int64(framework.MinNodeScore), framework.NewStatus(framework.Error, fmt.Sprintf("failed to get node %s: %s\n", nodeName, err.Error()))
 	}
 
 	res := float64(0)

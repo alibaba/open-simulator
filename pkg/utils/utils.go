@@ -41,14 +41,14 @@ import (
 func ParseFilePath(path string) (filePaths []string, err error) {
 	fi, err := os.Stat(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse path(%s): %v ", path, err)
 	}
 
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
 		files, err := ioutil.ReadDir(path)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to read directory(%s): %v ", path, err)
 		}
 		for _, f := range files {
 			p := filepath.Join(path, f.Name())
@@ -61,7 +61,7 @@ func ParseFilePath(path string) (filePaths []string, err error) {
 	case mode.IsRegular():
 		filePaths = append(filePaths, path)
 	default:
-		return nil, fmt.Errorf("invalid path: %s", path)
+		return nil, fmt.Errorf("invalid path: %s ", path)
 	}
 
 	return filePaths, nil
@@ -75,7 +75,7 @@ func DecodeYamlContent(yamlRes []byte) ([]runtime.Object, error) {
 		decode := scheme.Codecs.UniversalDeserializer().Decode
 		obj, _, err := decode([]byte(yaml), nil, nil)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to decode yaml content: \n%s\n%v", yaml, err)
 		}
 
 		objects = append(objects, obj)
@@ -116,7 +116,7 @@ func GetYamlContentFromDirectory(dir string) ([]string, error) {
 	var ymlStr []string
 	filePaths, err := ParseFilePath(dir)
 	if err != nil {
-		return ymlStr, fmt.Errorf("failed to parse the directory: %v", err)
+		return ymlStr, err
 	}
 	for _, filePath := range filePaths {
 		if yml := ReadYamlFile(filePath); yml != nil {
@@ -127,12 +127,12 @@ func GetYamlContentFromDirectory(dir string) ([]string, error) {
 	return ymlStr, nil
 }
 
-func MakeValidPodsByDeployment(deploy *appsv1.Deployment) []*corev1.Pod {
+func MakeValidPodsByDeployment(deploy *appsv1.Deployment) ([]*corev1.Pod, error) {
 	deploy.UID = uuid.NewUUID()
 	return MakeValidPodsByReplicaSet(generateReplicaSetFromDeployment(deploy))
 }
 
-func MakeValidPodsByReplicaSet(rs *appsv1.ReplicaSet) []*corev1.Pod {
+func MakeValidPodsByReplicaSet(rs *appsv1.ReplicaSet) ([]*corev1.Pod, error) {
 	var pods []*corev1.Pod
 	if rs.UID == "" {
 		rs.UID = uuid.NewUUID()
@@ -143,17 +143,20 @@ func MakeValidPodsByReplicaSet(rs *appsv1.ReplicaSet) []*corev1.Pod {
 	}
 	for ordinal := 0; ordinal < int(*rs.Spec.Replicas); ordinal++ {
 		pod := &corev1.Pod{
-			ObjectMeta: generateObjectMetaFromObject(rs, fmt.Sprintf("%d", ordinal), true),
+			ObjectMeta: SetObjectMetaFromObject(rs, fmt.Sprintf("%d", ordinal), true),
 			Spec:       rs.Spec.Template.Spec,
 		}
-		pod = MakePodValid(pod)
-		pod = AddWorkloadInfoToPod(pod, simontype.ReplicaSet, rs.Name, pod.Namespace)
-		pods = append(pods, pod)
+		validPod, err := MakeValidPod(pod)
+		if err != nil {
+			return nil, err
+		}
+		validPod = AddWorkloadInfoToPod(validPod, simontype.ReplicaSet, rs.Name, rs.Namespace)
+		pods = append(pods, validPod)
 	}
-	return pods
+	return pods, nil
 }
 
-func MakeValidPodsByReplicationController(rc *corev1.ReplicationController) []*corev1.Pod {
+func MakeValidPodsByReplicationController(rc *corev1.ReplicationController) ([]*corev1.Pod, error) {
 	var pods []*corev1.Pod
 	rc.UID = uuid.NewUUID()
 	if rc.Spec.Replicas == nil {
@@ -163,20 +166,23 @@ func MakeValidPodsByReplicationController(rc *corev1.ReplicationController) []*c
 
 	for ordinal := 0; ordinal < int(*rc.Spec.Replicas); ordinal++ {
 		pod := &corev1.Pod{
-			ObjectMeta: generateObjectMetaFromObject(rc, fmt.Sprintf("%d", ordinal), true),
+			ObjectMeta: SetObjectMetaFromObject(rc, fmt.Sprintf("%d", ordinal), true),
 			Spec:       rc.Spec.Template.Spec,
 		}
-		pod = MakePodValid(pod)
-		pod = AddWorkloadInfoToPod(pod, simontype.ReplicationController, rc.Name, pod.Namespace)
-		pods = append(pods, pod)
+		validPod, err := MakeValidPod(pod)
+		if err != nil {
+			return nil, err
+		}
+		validPod = AddWorkloadInfoToPod(validPod, simontype.ReplicationController, rc.Name, rc.Namespace)
+		pods = append(pods, validPod)
 	}
-	return pods
+	return pods, nil
 }
 
 func generateReplicaSetFromDeployment(deploy *appsv1.Deployment) *appsv1.ReplicaSet {
 	return &appsv1.ReplicaSet{
 		TypeMeta:   metav1.TypeMeta{APIVersion: appsv1.SchemeGroupVersion.String(), Kind: simontype.ReplicaSet},
-		ObjectMeta: generateObjectMetaFromObject(deploy, deploy.Name, false),
+		ObjectMeta: SetObjectMetaFromObject(deploy, deploy.Name, false),
 		Spec: appsv1.ReplicaSetSpec{
 			Selector: deploy.Spec.Selector,
 			Replicas: deploy.Spec.Replicas,
@@ -185,12 +191,12 @@ func generateReplicaSetFromDeployment(deploy *appsv1.Deployment) *appsv1.Replica
 	}
 }
 
-func MakeValidPodByCronJob(cronjob *batchv1beta1.CronJob) []*corev1.Pod {
+func MakeValidPodByCronJob(cronjob *batchv1beta1.CronJob) ([]*corev1.Pod, error) {
 	cronjob.UID = uuid.NewUUID()
 	return MakeValidPodByJob(generateJobFromCronJob(cronjob))
 }
 
-func MakeValidPodByJob(job *batchv1.Job) []*corev1.Pod {
+func MakeValidPodByJob(job *batchv1.Job) ([]*corev1.Pod, error) {
 	var pods []*corev1.Pod
 	if job.UID == "" {
 		job.UID = uuid.NewUUID()
@@ -203,15 +209,18 @@ func MakeValidPodByJob(job *batchv1.Job) []*corev1.Pod {
 
 	for ordinal := 0; ordinal < int(*job.Spec.Completions); ordinal++ {
 		pod := &corev1.Pod{
-			ObjectMeta: generateObjectMetaFromObject(job, fmt.Sprintf("%d", ordinal), true),
+			ObjectMeta: SetObjectMetaFromObject(job, fmt.Sprintf("%d", ordinal), true),
 			Spec:       job.Spec.Template.Spec,
 		}
-		pod = MakePodValid(pod)
-		pod = AddWorkloadInfoToPod(pod, simontype.Job, pod.Name, pod.Namespace)
-		pods = append(pods, pod)
+		validPod, err := MakeValidPod(pod)
+		if err != nil {
+			return nil, err
+		}
+		validPod = AddWorkloadInfoToPod(validPod, simontype.Job, job.Name, job.Namespace)
+		pods = append(pods, validPod)
 	}
 
-	return pods
+	return pods, nil
 }
 
 func generateJobFromCronJob(cronJob *batchv1beta1.CronJob) *batchv1.Job {
@@ -223,12 +232,12 @@ func generateJobFromCronJob(cronJob *batchv1beta1.CronJob) *batchv1.Job {
 
 	return &batchv1.Job{
 		TypeMeta:   metav1.TypeMeta{APIVersion: batchv1.SchemeGroupVersion.String(), Kind: simontype.Job},
-		ObjectMeta: generateObjectMetaFromObject(cronJob, cronJob.Name, false),
+		ObjectMeta: SetObjectMetaFromObject(cronJob, cronJob.Name, false),
 		Spec:       cronJob.Spec.JobTemplate.Spec,
 	}
 }
 
-func MakeValidPodsByStatefulSet(ss *appsv1.StatefulSet) []*corev1.Pod {
+func MakeValidPodsByStatefulSet(ss *appsv1.StatefulSet) ([]*corev1.Pod, error) {
 	var pods []*corev1.Pod
 	ss.UID = uuid.NewUUID()
 	if ss.Spec.Replicas == nil {
@@ -263,26 +272,29 @@ func MakeValidPodsByStatefulSet(ss *appsv1.StatefulSet) []*corev1.Pod {
 
 	for ordinal := 0; ordinal < int(*ss.Spec.Replicas); ordinal++ {
 		pod := &corev1.Pod{
-			ObjectMeta: generateObjectMetaFromObject(ss, fmt.Sprintf("%d", ordinal), true),
+			ObjectMeta: SetObjectMetaFromObject(ss, fmt.Sprintf("%d", ordinal), true),
 			Spec:       ss.Spec.Template.Spec,
 		}
-		pod = MakePodValid(pod)
-		pod = AddWorkloadInfoToPod(pod, simontype.StatefulSet, ss.Name, pod.Namespace)
+		validPod, err := MakeValidPod(pod)
+		if err != nil {
+			return nil, err
+		}
+		validPod.Name = fmt.Sprintf("%s-%d", ss.Name, ordinal)
+		validPod = AddWorkloadInfoToPod(validPod, simontype.StatefulSet, ss.Name, ss.Namespace)
 
 		// Storage
 		b, err := json.Marshal(volumes)
 		if err != nil {
-			fmt.Println(err)
-			return nil
+			return nil, err
 		}
-		metav1.SetMetaDataAnnotation(&pod.ObjectMeta, simontype.AnnoPodLocalStorage, string(b))
+		metav1.SetMetaDataAnnotation(&validPod.ObjectMeta, simontype.AnnoPodLocalStorage, string(b))
 
-		pods = append(pods, pod)
+		pods = append(pods, validPod)
 	}
-	return pods
+	return pods, nil
 }
 
-func generateObjectMetaFromObject(owner metav1.Object, message string, isPod bool) metav1.ObjectMeta {
+func SetObjectMetaFromObject(owner metav1.Object, message string, genPod bool) metav1.ObjectMeta {
 	var controllerKind schema.GroupVersionKind
 	switch owner.(type) {
 	case *appsv1.Deployment:
@@ -301,11 +313,11 @@ func generateObjectMetaFromObject(owner metav1.Object, message string, isPod boo
 		controllerKind = batchv1.SchemeGroupVersion.WithKind(simontype.Job)
 	}
 	return metav1.ObjectMeta{
-		Name:         owner.GetName() + simontype.SeparateSymbol + GetSHA256HashCode([]byte(owner.GetName()+message), SetObjectHashCodeDigit(isPod)),
+		Name:         owner.GetName() + simontype.SeparateSymbol + GetSHA256HashCode([]byte(owner.GetName()+message), GetObjectHashCodeDigit(genPod)),
 		Namespace:    owner.GetNamespace(),
 		UID:          uuid.NewUUID(),
 		Annotations:  owner.GetAnnotations(),
-		GenerateName: owner.GetGenerateName(),
+		GenerateName: owner.GetName(),
 		Labels:       owner.GetLabels(),
 		OwnerReferences: []metav1.OwnerReference{
 			*metav1.NewControllerRef(owner, controllerKind),
@@ -313,35 +325,42 @@ func generateObjectMetaFromObject(owner metav1.Object, message string, isPod boo
 	}
 }
 
-func SetObjectHashCodeDigit(isPod bool) int {
+func GetObjectHashCodeDigit(isPod bool) int {
 	if isPod {
 		return simontype.PodHashCodeDigit
 	}
 	return simontype.WorkLoadHashCodeDigit
 }
 
-func MakeValidPodsByDaemonset(ds *appsv1.DaemonSet, nodes []*corev1.Node) []*corev1.Pod {
+func MakeValidPodsByDaemonset(ds *appsv1.DaemonSet, nodes []*corev1.Node) ([]*corev1.Pod, error) {
 	var pods []*corev1.Pod
 	ds.UID = uuid.NewUUID()
 	for _, node := range nodes {
-		pod := NewDaemonPod(ds, node.Name)
+		pod, err := NewDaemonPod(ds, node.Name)
+		if err != nil {
+			return nil, err
+		}
 		shouldRun := NodeShouldRunPod(node, pod)
 		if shouldRun {
 			pods = append(pods, pod)
 		}
 	}
-	return pods
+	return pods, nil
 }
 
-func NewDaemonPod(ds *appsv1.DaemonSet, nodeName string) *corev1.Pod {
+func NewDaemonPod(ds *appsv1.DaemonSet, nodeName string) (*corev1.Pod, error) {
 	pod := &corev1.Pod{
-		ObjectMeta: generateObjectMetaFromObject(ds, nodeName, true),
+		ObjectMeta: SetObjectMetaFromObject(ds, nodeName, true),
 		Spec:       ds.Spec.Template.Spec,
 	}
 	pod.Spec.Affinity = SetDaemonSetPodNodeNameByNodeAffinity(pod.Spec.Affinity, nodeName)
-	pod = MakePodValid(pod)
-	pod = AddWorkloadInfoToPod(pod, simontype.DaemonSet, ds.Name, pod.Namespace)
-	return pod
+	validPod, err := MakeValidPod(pod)
+	if err != nil {
+		return nil, err
+	}
+	validPod = AddWorkloadInfoToPod(validPod, simontype.DaemonSet, ds.Name, ds.Namespace)
+
+	return validPod, nil
 }
 
 // NodeShouldRunPod determines whether a node should run a pod according to scheduling rules
@@ -354,20 +373,42 @@ func NodeShouldRunPod(node *corev1.Node, pod *corev1.Pod) bool {
 	return true
 }
 
-func MakeValidPodByPod(pod *corev1.Pod) *corev1.Pod {
+func MakeValidPodByPod(pod *corev1.Pod) (*corev1.Pod, error) {
 	pod.UID = uuid.NewUUID()
-	return MakePodValid(pod)
+	newPod, err := MakeValidPod(pod)
+	if err != nil {
+		return nil, err
+	}
+	return newPod, nil
 }
 
-// MakePodValid make pod valid, so we can handle it
-func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
+// MakeValidPod make pod valid, so we can handle it
+func MakeValidPod(oldPod *corev1.Pod) (*corev1.Pod, error) {
 	newPod := oldPod.DeepCopy()
-	if newPod.ObjectMeta.Namespace == "" {
-		newPod.ObjectMeta.Namespace = corev1.NamespaceDefault
-	}
+
 	if newPod.Labels == nil {
 		newPod.Labels = make(map[string]string)
 	}
+
+	// ObjectMeta
+	if newPod.ObjectMeta.Namespace == "" {
+		newPod.ObjectMeta.Namespace = corev1.NamespaceDefault
+	}
+	if newPod.ObjectMeta.Annotations == nil {
+		newPod.ObjectMeta.Annotations = map[string]string{}
+	}
+
+	// Spec
+	if newPod.Spec.DNSPolicy == "" {
+		newPod.Spec.DNSPolicy = corev1.DNSClusterFirst
+	}
+	if newPod.Spec.RestartPolicy == "" {
+		newPod.Spec.RestartPolicy = corev1.RestartPolicyAlways
+	}
+	if newPod.Spec.SchedulerName == "" {
+		newPod.Spec.SchedulerName = simontype.DefaultSchedulerName
+	}
+
 	if newPod.Spec.InitContainers != nil {
 		for i := range newPod.Spec.InitContainers {
 			if newPod.Spec.InitContainers[i].TerminationMessagePolicy == "" {
@@ -384,6 +425,7 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 			newPod.Spec.InitContainers[i].Env = nil
 		}
 	}
+
 	if newPod.Spec.Containers != nil {
 		for i := range newPod.Spec.Containers {
 			if newPod.Spec.Containers[i].TerminationMessagePolicy == "" {
@@ -398,29 +440,12 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 			}
 			newPod.Spec.Containers[i].VolumeMounts = nil
 			newPod.Spec.Containers[i].Env = nil
+			// Probe
+			newPod.Spec.Containers[i].LivenessProbe = nil
+			newPod.Spec.Containers[i].ReadinessProbe = nil
+			newPod.Spec.Containers[i].StartupProbe = nil
 		}
 	}
-
-	if newPod.Spec.DNSPolicy == "" {
-		newPod.Spec.DNSPolicy = corev1.DNSClusterFirst
-	}
-	if newPod.Spec.RestartPolicy == "" {
-		newPod.Spec.RestartPolicy = corev1.RestartPolicyAlways
-	}
-	if newPod.Spec.SchedulerName == "" {
-		newPod.Spec.SchedulerName = simontype.DefaultSchedulerName
-	}
-	// Probe may cause that pod can not pass the ValidatePod test
-	for i := range newPod.Spec.Containers {
-		newPod.Spec.Containers[i].LivenessProbe = nil
-		newPod.Spec.Containers[i].ReadinessProbe = nil
-		newPod.Spec.Containers[i].StartupProbe = nil
-	}
-	// Add pod provisioner annotation
-	if newPod.ObjectMeta.Annotations == nil {
-		newPod.ObjectMeta.Annotations = map[string]string{}
-	}
-
 	// handle volume
 	// notice: open-local volume should not used in deployment, cause it is not nas storage.
 	if newPod.Spec.Volumes != nil {
@@ -434,11 +459,11 @@ func MakePodValid(oldPod *corev1.Pod) *corev1.Pod {
 	}
 
 	// todo: handle pvc
-	if !ValidatePod(newPod) {
-		os.Exit(1)
+	if err := ValidatePod(newPod); err != nil {
+		return nil, err
 	}
 
-	return newPod
+	return newPod, nil
 }
 
 // AddWorkloadInfoToPod add annotation in pod for simulating later
@@ -449,8 +474,9 @@ func AddWorkloadInfoToPod(pod *corev1.Pod, kind string, name string, namespace s
 	return pod
 }
 
-func MakeValidNodeByNode(node *corev1.Node, nodename string) *corev1.Node {
+func MakeValidNodeByNode(node *corev1.Node, nodename string) (*corev1.Node, error) {
 	node.ObjectMeta.Name = nodename
+	node.ObjectMeta.UID = uuid.NewUUID()
 	if node.ObjectMeta.Labels == nil {
 		node.ObjectMeta.Labels = map[string]string{}
 	}
@@ -458,29 +484,26 @@ func MakeValidNodeByNode(node *corev1.Node, nodename string) *corev1.Node {
 	if node.ObjectMeta.Annotations == nil {
 		node.ObjectMeta.Annotations = map[string]string{}
 	}
-	node.ObjectMeta.UID = uuid.NewUUID()
-	if !ValidateNode(node) {
-		os.Exit(1)
+	if err := ValidateNode(node); err != nil {
+		return nil, err
 	}
-	return node
+	return node, nil
 }
 
 // ValidatePod check if pod is valid
-func ValidatePod(pod *corev1.Pod) bool {
+func ValidatePod(pod *corev1.Pod) error {
 	internalPod := &api.Pod{}
 	if err := apiv1.Convert_v1_Pod_To_core_Pod(pod, internalPod, nil); err != nil {
-		fmt.Printf("unable to convert to internal version: %#v", err)
-		return false
+		return fmt.Errorf("unable to convert to internal version: %#v ", err)
 	}
 	if errs := validation.ValidatePodCreate(internalPod, validation.PodValidationOptions{}); len(errs) > 0 {
 		var errStrs []string
 		for _, err := range errs {
-			errStrs = append(errStrs, fmt.Sprintf("%v: %v", err.Type, err.Field))
+			errStrs = append(errStrs, fmt.Sprintf("%v", err))
 		}
-		fmt.Printf("Invalid pod(%s): %#v: %s", internalPod.Name, strings.Join(errStrs, ", "), internalPod.UID)
-		return false
+		return fmt.Errorf("invalid pod: %#v ", strings.Join(errStrs, "\n"))
 	}
-	return true
+	return nil
 }
 
 func GetSHA256HashCode(message []byte, num int) string {
@@ -506,25 +529,26 @@ type VolumeRequest struct {
 	Volumes []Volume `json:"volumes"`
 }
 
-func GetNodeStorage(node *corev1.Node) *NodeStorage {
+func GetNodeStorage(node *corev1.Node) (*NodeStorage, error) {
 	nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]
 	if !exist {
-		return nil
+		return nil, nil
 	}
 
 	nodeStorage := new(NodeStorage)
 	if err := ffjson.Unmarshal([]byte(nodeStorageStr), nodeStorage); err != nil {
-		log.Errorf("unmarshal info of node %s failed: %s", node.Name, err.Error())
-		return nil
+		return nil, fmt.Errorf("failed to unmarshal info of node %s: %s ", node.Name, err.Error())
 	}
 
-	return nodeStorage
+	return nodeStorage, nil
 }
 
-func GetNodeCache(node *corev1.Node) *localcache.NodeCache {
-	nodeStorage := GetNodeStorage(node)
-	if nodeStorage == nil {
-		return nil
+func GetNodeCache(node *corev1.Node) (*localcache.NodeCache, error) {
+	nodeStorage, err := GetNodeStorage(node)
+	if err != nil {
+		return nil, err
+	} else if nodeStorage == nil {
+		return nil, nil
 	}
 
 	nc := localcache.NewNodeCache(node.Name)
@@ -540,7 +564,7 @@ func GetNodeCache(node *corev1.Node) *localcache.NodeCache {
 	}
 	nc.Devices = deviceRes
 
-	return nc
+	return nc, nil
 }
 
 func GetPodStorage(pod *corev1.Pod) *VolumeRequest {
@@ -607,21 +631,20 @@ func GetPodLocalPVCs(pod *corev1.Pod) ([]*corev1.PersistentVolumeClaim, []*corev
 }
 
 // ValidateNode check if node is valid
-func ValidateNode(node *corev1.Node) bool {
+func ValidateNode(node *corev1.Node) error {
 	internalNode := &api.Node{}
 	if err := apiv1.Convert_v1_Node_To_core_Node(node, internalNode, nil); err != nil {
-		fmt.Printf("unable to convert to internal version: %#v", err)
-		return false
+		return fmt.Errorf("unable to convert to internal version: %#v ", err)
 	}
 	if errs := validation.ValidateNode(internalNode); len(errs) > 0 {
 		var errStrs []string
 		for _, err := range errs {
-			errStrs = append(errStrs, fmt.Sprintf("%v: %v", err.Type, err.Field))
+			errStrs = append(errStrs, fmt.Sprintf("%v", err))
 		}
-		fmt.Printf("Invalid node: %#v", strings.Join(errStrs, ", "))
-		return false
+		return fmt.Errorf("invalid node: %#v ", strings.Join(errStrs, "\n"))
 	}
-	return true
+
+	return nil
 }
 
 func GetPodsTotalRequestsAndLimitsByNodeName(pods []corev1.Pod, nodeName string) (map[corev1.ResourceName]resource.Quantity, map[corev1.ResourceName]resource.Quantity) {
@@ -722,7 +745,7 @@ func GetNodeAllocatable(node *corev1.Node) (resource.Quantity, resource.Quantity
 	return *nodeAllocatable.Cpu(), *nodeAllocatable.Memory()
 }
 
-func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*appsv1.DaemonSet) bool {
+func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*appsv1.DaemonSet) (bool, error) {
 	// CPU and Memory
 	totalResource := map[corev1.ResourceName]*resource.Quantity{
 		corev1.ResourceCPU:    resource.NewQuantity(0, resource.DecimalSI),
@@ -731,7 +754,10 @@ func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*apps
 
 	for _, item := range daemonSets {
 		newItem := item
-		daemonPod := NewDaemonPod(newItem, simontype.NewNodeNamePrefix)
+		daemonPod, err := NewDaemonPod(newItem, simontype.NewNodeNamePrefix)
+		if err != nil {
+			return false, err
+		}
 		if NodeShouldRunPod(node, daemonPod) {
 			for _, container := range daemonPod.Spec.Containers {
 				totalResource[corev1.ResourceCPU].Add(*container.Resources.Requests.Cpu())
@@ -746,11 +772,16 @@ func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*apps
 
 	if totalResource[corev1.ResourceCPU].Cmp(*node.Status.Allocatable.Cpu()) == 1 ||
 		totalResource[corev1.ResourceMemory].Cmp(*node.Status.Allocatable.Memory()) == 1 {
-		return false
+		return false, nil
 	}
 
 	// Local Storage
-	nodeStorage := GetNodeStorage(node)
+	nodeStorage, err := GetNodeStorage(node)
+	if err != nil {
+		return false, err
+	} else if nodeStorage == nil {
+		return true, nil
+	}
 	var nodeVGMax int64 = 0
 	for _, vg := range nodeStorage.VGs {
 		if vg.Capacity > int64(nodeVGMax) {
@@ -763,7 +794,7 @@ func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*apps
 		pvcSum += localutils.GetPVCRequested(pvc)
 	}
 
-	return pvcSum <= nodeVGMax
+	return pvcSum <= nodeVGMax, nil
 }
 
 func CreateKubeClient(kubeconfig string) (*clientset.Clientset, error) {
@@ -775,12 +806,12 @@ func CreateKubeClient(kubeconfig string) (*clientset.Clientset, error) {
 	var cfg *restclient.Config
 	master, err := GetMasterFromKubeConfig(kubeconfig)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to parse kubeclient file: %v ", err)
+		return nil, fmt.Errorf("failed to parse kubeclient file: %v ", err)
 	}
 
 	cfg, err = clientcmd.BuildConfigFromFlags(master, kubeconfig)
 	if err != nil {
-		return nil, fmt.Errorf("Unable to build config: %v ", err)
+		return nil, fmt.Errorf("unable to build config: %v ", err)
 	}
 
 	kubeClient, err := clientset.NewForConfig(cfg)
@@ -798,13 +829,13 @@ func GetMasterFromKubeConfig(filename string) (string, error) {
 
 	context, ok := config.Contexts[config.CurrentContext]
 	if !ok {
-		return "", fmt.Errorf("Failed to get master address from kubeconfig")
+		return "", fmt.Errorf("failed to get master address from kubeconfig")
 	}
 
 	if val, ok := config.Clusters[context.Cluster]; ok {
 		return val.Server, nil
 	}
-	return "", fmt.Errorf("Failed to get master address from kubeconfig")
+	return "", fmt.Errorf("failed to get master address from kubeconfig")
 }
 
 func SetDaemonSetPodNodeNameByNodeAffinity(affinity *corev1.Affinity, nodename string) *corev1.Affinity {
