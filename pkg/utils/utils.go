@@ -245,31 +245,6 @@ func MakeValidPodsByStatefulSet(ss *appsv1.StatefulSet) ([]*corev1.Pod, error) {
 		ss.Spec.Replicas = &replica
 	}
 
-	// handle Open-Local Volumes
-	var volumes VolumeRequest
-	volumes.Volumes = make([]Volume, 0)
-	for _, pvc := range ss.Spec.VolumeClaimTemplates {
-		if *pvc.Spec.StorageClassName == OpenLocalSCNameLVM || *pvc.Spec.StorageClassName == YodaSCNameLVM {
-			volume := Volume{
-				Size: localutils.GetPVCRequested(&pvc),
-				Kind: "LVM",
-			}
-			volumes.Volumes = append(volumes.Volumes, volume)
-		} else if *pvc.Spec.StorageClassName == OpenLocalSCNameDeviceSSD || *pvc.Spec.StorageClassName == OpenLocalSCNameMountPointSSD || *pvc.Spec.StorageClassName == YodaSCNameMountPointSSD || *pvc.Spec.StorageClassName == YodaSCNameDeviceSSD {
-			volume := Volume{
-				Size: localutils.GetPVCRequested(&pvc),
-				Kind: "SSD",
-			}
-			volumes.Volumes = append(volumes.Volumes, volume)
-		} else if *pvc.Spec.StorageClassName == OpenLocalSCNameDeviceHDD || *pvc.Spec.StorageClassName == OpenLocalSCNameMountPointHDD || *pvc.Spec.StorageClassName == YodaSCNameMountPointHDD || *pvc.Spec.StorageClassName == YodaSCNameDeviceHDD {
-			volume := Volume{
-				Size: localutils.GetPVCRequested(&pvc),
-				Kind: "HDD",
-			}
-			volumes.Volumes = append(volumes.Volumes, volume)
-		}
-	}
-
 	for ordinal := 0; ordinal < int(*ss.Spec.Replicas); ordinal++ {
 		pod := &corev1.Pod{
 			ObjectMeta: SetObjectMetaFromObject(ss, fmt.Sprintf("%d", ordinal), true),
@@ -282,16 +257,59 @@ func MakeValidPodsByStatefulSet(ss *appsv1.StatefulSet) ([]*corev1.Pod, error) {
 		validPod.Name = fmt.Sprintf("%s-%d", ss.Name, ordinal)
 		validPod = AddWorkloadInfoToPod(validPod, simontype.StatefulSet, ss.Name, ss.Namespace)
 
-		// Storage
-		b, err := json.Marshal(volumes)
-		if err != nil {
-			return nil, err
-		}
-		metav1.SetMetaDataAnnotation(&validPod.ObjectMeta, simontype.AnnoPodLocalStorage, string(b))
-
 		pods = append(pods, validPod)
 	}
+
+	if err := SetStorageAnnotationOnPods(pods, ss.Spec.VolumeClaimTemplates, ss.Name); err != nil {
+		return nil, err
+	}
+
 	return pods, nil
+}
+
+func SetStorageAnnotationOnPods(pods []*corev1.Pod, volumeClaimTemplates []corev1.PersistentVolumeClaim, stsName string) error {
+	var volumes VolumeRequest
+	volumes.Volumes = make([]Volume, 0)
+	for _, pvc := range volumeClaimTemplates {
+		if pvc.Spec.StorageClassName != nil {
+			if *pvc.Spec.StorageClassName == OpenLocalSCNameLVM || *pvc.Spec.StorageClassName == YodaSCNameLVM {
+				volume := Volume{
+					Size:             localutils.GetPVCRequested(&pvc),
+					Kind:             "LVM",
+					StorageClassName: *pvc.Spec.StorageClassName,
+				}
+				volumes.Volumes = append(volumes.Volumes, volume)
+			} else if *pvc.Spec.StorageClassName == OpenLocalSCNameDeviceSSD || *pvc.Spec.StorageClassName == OpenLocalSCNameMountPointSSD || *pvc.Spec.StorageClassName == YodaSCNameMountPointSSD || *pvc.Spec.StorageClassName == YodaSCNameDeviceSSD {
+				volume := Volume{
+					Size:             localutils.GetPVCRequested(&pvc),
+					Kind:             "SSD",
+					StorageClassName: *pvc.Spec.StorageClassName,
+				}
+				volumes.Volumes = append(volumes.Volumes, volume)
+			} else if *pvc.Spec.StorageClassName == OpenLocalSCNameDeviceHDD || *pvc.Spec.StorageClassName == OpenLocalSCNameMountPointHDD || *pvc.Spec.StorageClassName == YodaSCNameMountPointHDD || *pvc.Spec.StorageClassName == YodaSCNameDeviceHDD {
+				volume := Volume{
+					Size:             localutils.GetPVCRequested(&pvc),
+					Kind:             "HDD",
+					StorageClassName: *pvc.Spec.StorageClassName,
+				}
+				volumes.Volumes = append(volumes.Volumes, volume)
+			} else {
+				log.Errorf("unsupported storage class: %s", *pvc.Spec.StorageClassName)
+			}
+		} else {
+			log.Errorf("empty storageClassName in volumeTemplate of statefulset %s is not supported", stsName)
+		}
+	}
+
+	for _, pod := range pods {
+		b, err := json.Marshal(volumes)
+		if err != nil {
+			return err
+		}
+		metav1.SetMetaDataAnnotation(&pod.ObjectMeta, simontype.AnnoPodLocalStorage, string(b))
+	}
+
+	return nil
 }
 
 func SetObjectMetaFromObject(owner metav1.Object, message string, genPod bool) metav1.ObjectMeta {
@@ -522,7 +540,8 @@ type Volume struct {
 	Size int64 `json:"size,string"`
 	// Kind 可以是 LVM 或 HDD 或 SSD
 	// HDD 和 SSD 均指代独占盘
-	Kind string `json:"kind"`
+	Kind             string `json:"kind"`
+	StorageClassName string `json:"scName"`
 }
 
 type VolumeRequest struct {
@@ -592,13 +611,10 @@ func GetPodLocalPVCs(pod *corev1.Pod) ([]*corev1.PersistentVolumeClaim, []*corev
 	devicePVCs := make([]*corev1.PersistentVolumeClaim, 0)
 	for i, volume := range podStorage.Volumes {
 		scName := ""
-		if volume.Kind == "LVM" {
-			scName = OpenLocalSCNameLVM
-		} else if volume.Kind == "HDD" {
-			scName = OpenLocalSCNameDeviceHDD
-		} else if volume.Kind == "SSD" {
-			scName = OpenLocalSCNameDeviceSSD
+		if volume.Kind == "LVM" || volume.Kind == "HDD" || volume.Kind == "SSD" {
+			scName = volume.StorageClassName
 		} else {
+			log.Errorf("unsupported volume kind: %s", volume.Kind)
 			continue
 		}
 		volumeQuantity := resource.NewQuantity(volume.Size, resource.BinarySI)
@@ -620,7 +636,7 @@ func GetPodLocalPVCs(pod *corev1.Pod) ([]*corev1.PersistentVolumeClaim, []*corev
 				Phase: corev1.ClaimPending,
 			},
 		}
-		if scName == OpenLocalSCNameLVM {
+		if scName == OpenLocalSCNameLVM || scName == YodaSCNameLVM {
 			lvmPVCs = append(lvmPVCs, pvc)
 		} else {
 			devicePVCs = append(devicePVCs, pvc)

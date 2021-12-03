@@ -72,15 +72,19 @@ func (plugin *LocalPlugin) Filter(ctx context.Context, state *framework.CycleSta
 	schedulingContext.ClusterNodeCache.Nodes[nodeInfo.Node().Name] = nc
 
 	// process Open-Local LVM
-	fits, _, err := localalgo.ProcessLVMPVCPredicate(lvmPVCs, nodeInfo.Node(), schedulingContext)
-	if !fits {
-		return framework.NewStatus(framework.Unschedulable, err.Error())
+	if len(lvmPVCs) != 0 {
+		fits, _, err := localalgo.ProcessLVMPVCPredicate(lvmPVCs, nodeInfo.Node(), schedulingContext)
+		if !fits {
+			return framework.NewStatus(framework.Unschedulable, err.Error())
+		}
 	}
 
 	// process Open-Local Device
-	fits, _, err = localalgo.ProcessDevicePVC(nil, devicePVCs, nodeInfo.Node(), schedulingContext)
-	if !fits {
-		return framework.NewStatus(framework.Unschedulable, err.Error())
+	if len(devicePVCs) != 0 {
+		fits, _, err := localalgo.ProcessDevicePVC(nil, devicePVCs, nodeInfo.Node(), schedulingContext)
+		if !fits {
+			return framework.NewStatus(framework.Unschedulable, err.Error())
+		}
 	}
 
 	return framework.NewStatus(framework.Success)
