@@ -107,20 +107,14 @@ func (plugin *LocalPlugin) Score(ctx context.Context, state *framework.CycleStat
 		nodeExist = false
 	}
 
-	// there are 3 situations that need to be dealt with in advance:
-	// MaxScore: node doesn't have storage resources and pod doesn't require storage resources
+	// there are 2 situations that need to be dealt with in advance:
+	// MinScore: pod doesn't require storage resources
 	// Unschedulable: node doesn't have storage resources but pod requires storage resources
-	// MinScore: node has storage resources but pod doesn't require storage resources
+	if !podExist {
+		return int64(localpriorities.MinScore), framework.NewStatus(framework.Success)
+	}
 	if !nodeExist {
-		if !podExist {
-			return int64(localpriorities.MaxScore), framework.NewStatus(framework.Success)
-		} else {
-			return int64(localpriorities.MinScore), framework.NewStatus(framework.Unschedulable, fmt.Sprintf("no local storage found in node %s", node.Name))
-		}
-	} else {
-		if !podExist {
-			return int64(localpriorities.MinScore), framework.NewStatus(framework.Success)
-		}
+		return int64(localpriorities.MinScore), framework.NewStatus(framework.Unschedulable, fmt.Sprintf("no local storage found in node %s", node.Name))
 	}
 
 	// create SchedulingContext
