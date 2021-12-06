@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -143,7 +144,7 @@ func MakeValidPodsByReplicaSet(rs *appsv1.ReplicaSet) ([]*corev1.Pod, error) {
 	}
 	for ordinal := 0; ordinal < int(*rs.Spec.Replicas); ordinal++ {
 		pod := &corev1.Pod{
-			ObjectMeta: SetObjectMetaFromObject(rs, fmt.Sprintf("%d", ordinal), true),
+			ObjectMeta: SetObjectMetaFromObject(rs, true),
 			Spec:       rs.Spec.Template.Spec,
 		}
 		validPod, err := MakeValidPod(pod)
@@ -166,7 +167,7 @@ func MakeValidPodsByReplicationController(rc *corev1.ReplicationController) ([]*
 
 	for ordinal := 0; ordinal < int(*rc.Spec.Replicas); ordinal++ {
 		pod := &corev1.Pod{
-			ObjectMeta: SetObjectMetaFromObject(rc, fmt.Sprintf("%d", ordinal), true),
+			ObjectMeta: SetObjectMetaFromObject(rc, true),
 			Spec:       rc.Spec.Template.Spec,
 		}
 		validPod, err := MakeValidPod(pod)
@@ -182,7 +183,7 @@ func MakeValidPodsByReplicationController(rc *corev1.ReplicationController) ([]*
 func generateReplicaSetFromDeployment(deploy *appsv1.Deployment) *appsv1.ReplicaSet {
 	return &appsv1.ReplicaSet{
 		TypeMeta:   metav1.TypeMeta{APIVersion: appsv1.SchemeGroupVersion.String(), Kind: simontype.ReplicaSet},
-		ObjectMeta: SetObjectMetaFromObject(deploy, deploy.Name, false),
+		ObjectMeta: SetObjectMetaFromObject(deploy, false),
 		Spec: appsv1.ReplicaSetSpec{
 			Selector: deploy.Spec.Selector,
 			Replicas: deploy.Spec.Replicas,
@@ -209,7 +210,7 @@ func MakeValidPodByJob(job *batchv1.Job) ([]*corev1.Pod, error) {
 
 	for ordinal := 0; ordinal < int(*job.Spec.Completions); ordinal++ {
 		pod := &corev1.Pod{
-			ObjectMeta: SetObjectMetaFromObject(job, fmt.Sprintf("%d", ordinal), true),
+			ObjectMeta: SetObjectMetaFromObject(job, true),
 			Spec:       job.Spec.Template.Spec,
 		}
 		validPod, err := MakeValidPod(pod)
@@ -232,7 +233,7 @@ func generateJobFromCronJob(cronJob *batchv1beta1.CronJob) *batchv1.Job {
 
 	return &batchv1.Job{
 		TypeMeta:   metav1.TypeMeta{APIVersion: batchv1.SchemeGroupVersion.String(), Kind: simontype.Job},
-		ObjectMeta: SetObjectMetaFromObject(cronJob, cronJob.Name, false),
+		ObjectMeta: SetObjectMetaFromObject(cronJob, false),
 		Spec:       cronJob.Spec.JobTemplate.Spec,
 	}
 }
@@ -247,7 +248,7 @@ func MakeValidPodsByStatefulSet(ss *appsv1.StatefulSet) ([]*corev1.Pod, error) {
 
 	for ordinal := 0; ordinal < int(*ss.Spec.Replicas); ordinal++ {
 		pod := &corev1.Pod{
-			ObjectMeta: SetObjectMetaFromObject(ss, fmt.Sprintf("%d", ordinal), true),
+			ObjectMeta: SetObjectMetaFromObject(ss, true),
 			Spec:       ss.Spec.Template.Spec,
 		}
 		validPod, err := MakeValidPod(pod)
@@ -312,7 +313,7 @@ func SetStorageAnnotationOnPods(pods []*corev1.Pod, volumeClaimTemplates []corev
 	return nil
 }
 
-func SetObjectMetaFromObject(owner metav1.Object, message string, genPod bool) metav1.ObjectMeta {
+func SetObjectMetaFromObject(owner metav1.Object, genPod bool) metav1.ObjectMeta {
 	var controllerKind schema.GroupVersionKind
 	switch owner.(type) {
 	case *appsv1.Deployment:
@@ -331,7 +332,7 @@ func SetObjectMetaFromObject(owner metav1.Object, message string, genPod bool) m
 		controllerKind = batchv1.SchemeGroupVersion.WithKind(simontype.Job)
 	}
 	return metav1.ObjectMeta{
-		Name:         owner.GetName() + simontype.SeparateSymbol + GetSHA256HashCode([]byte(owner.GetName()+message), GetObjectHashCodeDigit(genPod)),
+		Name:         owner.GetName() + simontype.SeparateSymbol + GetSHA256HashCode([]byte(rand.String(10)), GetObjectHashCodeDigit(genPod)),
 		Namespace:    owner.GetNamespace(),
 		UID:          uuid.NewUUID(),
 		Annotations:  owner.GetAnnotations(),
@@ -368,7 +369,7 @@ func MakeValidPodsByDaemonset(ds *appsv1.DaemonSet, nodes []*corev1.Node) ([]*co
 
 func NewDaemonPod(ds *appsv1.DaemonSet, nodeName string) (*corev1.Pod, error) {
 	pod := &corev1.Pod{
-		ObjectMeta: SetObjectMetaFromObject(ds, nodeName, true),
+		ObjectMeta: SetObjectMetaFromObject(ds, true),
 		Spec:       ds.Spec.Template.Spec,
 	}
 	pod.Spec.Affinity = SetDaemonSetPodNodeNameByNodeAffinity(pod.Spec.Affinity, nodeName)
