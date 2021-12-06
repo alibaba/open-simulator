@@ -29,6 +29,7 @@ const (
 	EnvMaxMemory = "MaxMemory"
 	EnvMaxVG     = "MaxVG"
 
+	Pod                   = "Pod"
 	Deployment            = "Deployment"
 	ReplicaSet            = "ReplicaSet"
 	ReplicationController = "ReplicationController"

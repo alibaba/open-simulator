@@ -22,9 +22,7 @@ build:
 
 .PHONY: test 
 test:
-	GO111MODULE=$(GO111MODULE) GOARCH=$(GOARCH) GOOS=linux CGO_ENABLED=0 go build $(LD_FLAGS) -v -o $(OUTPUT_DIR)/$(BINARY_NAME) ./cmd
-	chmod +x $(OUTPUT_DIR)/$(BINARY_NAME)
-	scp $(OUTPUT_DIR)/$(BINARY_NAME) yoda1:/root/
+	go test -v ./...
 
 .PHONY: clean 
 clean:
