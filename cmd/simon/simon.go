@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/alibaba/open-simulator/cmd/apply"
+	"github.com/alibaba/open-simulator/cmd/deschedule"
 	"github.com/alibaba/open-simulator/cmd/doc"
 	"github.com/alibaba/open-simulator/cmd/version"
 	log "github.com/sirupsen/logrus"
@@ -33,6 +34,7 @@ func NewSimonCommand() *cobra.Command {
 		version.VersionCmd,
 		apply.ApplyCmd,
 		doc.GenDoc.DocCmd,
+		deschedule.DescheduleCmd,
 	)
 	simonCmd.SetGlobalNormalizationFunc(cliflag.WordSepNormalizeFunc)
 	simonCmd.Flags().AddGoFlagSet(goflag.CommandLine)
