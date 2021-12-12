@@ -6,7 +6,7 @@ GO_PACKAGE=github.com/alibaba/open-simulator
 CGO_ENABLED=0
 
 COMMITID=$(shell git rev-parse --short HEAD)
-VERSION=v0.1.0-dev
+VERSION=v0.1.1-dev
 LD_FLAGS=-ldflags "-X '${GO_PACKAGE}/cmd/version.VERSION=$(VERSION)' -X '${GO_PACKAGE}/cmd/version.COMMITID=$(COMMITID)'"
 
 OUTPUT_DIR=./bin
