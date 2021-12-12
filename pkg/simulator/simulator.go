@@ -508,7 +508,7 @@ func CreateClusterResourceFromClusterConfig(path string) (ResourceTypes, error) 
 		return resource, err
 	}
 
-	MatchAndSetStorageAnnotationOnNode(resource.Nodes, path)
+	MatchAndSetLocalStorageAnnotationOnNode(resource.Nodes, path)
 
 	return resource, nil
 }

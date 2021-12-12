@@ -28,6 +28,7 @@ func init() {
 	ApplyCmd.Flags().StringVar(&options.DefaultSchedulerConfigFile, "default-scheduler-config", options.DefaultSchedulerConfigFile, "path to JSON or YAML file containing scheduler configuration.")
 	ApplyCmd.Flags().BoolVar(&options.UseGreed, "use-greed", false, "use greedy algorithm when queue pods")
 	ApplyCmd.Flags().BoolVarP(&options.Interactive, "interactive", "i", false, "interactive mode")
+	ApplyCmd.Flags().StringSliceVar(&options.ExtendedResources, "extended-resources", nil, "show extended resources when reporting, e.g. open-local")
 
 	if err := ApplyCmd.MarkFlagRequired("simon-config"); err != nil {
 		log.Fatal("failed to init ApplyCmd on simon-config flag")
