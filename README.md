@@ -7,37 +7,36 @@ English | [简体中文](./README_zh.md)
 
 ## Introduction
 
-Open-simulator is **a cluster simulation component** serving to kubernetes cluster deployment. The core of open-simulator is that simulates the ability of **Kube-Controller-Manager** component to generate pod instances originating from [workload](https://kubernetes.io/zh/docs/concepts/workloads/) resources and the scheduling ability of **Kube-Scheduler** component to schedule pod based on scheduling policy to achieve the effect of simulating deployment in a real scenario. Eventually，users, quickly and clearly, can get a reasonable deployment plan or make it at your discretion according to the deployment
+Open-simulator is a **cluster simulator** for Kubernetes. With the simulation capability of Open-Simulator, users can create a fake Kubernetes cluster and deploy [workloads](https://kubernetes.io/zh/docs/concepts/workloads/) on it. Open-Simulator will simulate the [kube-controller-manager](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-controller-manager/) to create pods for the workloads, and simulate the [kube-scheduler](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-scheduler/) to assign pods to the appropriate nodes.
 
 ## Use Case
 
-Open-simulator hopes to solve the thorny **capacity planning** problem in kubernetes:
+Open-Simulator intends to reduce the labor costs in the delivery phase and operation and maintenance costs after the delivery phase, improve the overall utilization of cluster resources by solving the following thorny problems in Kubernetes:
 
-- Calculate cluster size: calculate **the minimum number of nodes** on the condition of deploying successfully specific application according to the available machine specifications (such as CPU cores, memory and disks) and the files (a series of workloads config containing the specified number of duplicates, affinity policies and resource requests) to deploy your application;
-- Simulate application deployment：in the running kubernetes cluster, simulate whether application can be successfully deployed. If the cluster size does not meet the deployment requirements, **a minimum cluster expansion proposal** is given to solve the All-or-Nothing problem of scheduling application;
-- Offline idle node：in the running kubernetes cluster, filter and **offline the idle nodes** based on the custom rules.
+- **Capacity Planning**: according to the existing server specifications (including the number of CPU cores, size of memory, capacity of disk, etc) and application workloads files (including the replicas, affinity rules, resource requirements, etc), calculate the minimum number of nodes required to install the cluster and its applications successfully.
+- **Simulating Deploying Applications**: in the running kubernetes cluster, determine whether the applications can be deployed successfully at one time by simulating deploying applications in the fake mirror cluster. If the cluster size does not meet the resource requirements of applications, a minimum cluster expansion proposal is given to solve the All-or-Nothing problem of deploying applications;
+- **Pods Migration**: in the running Kubernetes cluster, pods can be migrated between nodes according to the migration policy(such as scaling down cluster, defragmentation, etc).
 
-Through reasonable **capacity planning**, users can reduce labor costs in the delivery phase and operation and maintenance costs after the delivery phase, and improve the overall utilization of cluster resources。
+## ✅ Feature
 
-## ✅ Character
-
-- [x] Support to create kubernetes clusters of any size you want
+- [x] Support to create fake kubernetes clusters of any size you want
 - [x] Support to deploy various workloads, including as follows:
   - [x] Deployment
   - [x] StatefulSet
   - [x] Daemonset
+  - [x] ReplicaSet
   - [x] Job
   - [x] CronJob
   - [x] Pod
-- [x] Support to simulate Kube-Scheduler scheduling and reports the topology results of application deployment
-- [x] Support the automatic addition of nodes to deploy successfully applications
-- [x] Support storage scheduling of [Open-Local](https://github.com/alibaba/open-local)
+- [x] Support to simulate Kube-Scheduler and report the topology results of applications deployment
+- [x] Support the automatic addition of fake nodes to deploy applications successfully
+- [x] Support to simulate storage scheduling of [Open-Local](https://github.com/alibaba/open-local)
 - [x] Support helm chart
-- [x] Support setting the average resource utilization
-- [x] Support the custom sequence of deployment for multiple applications
-- [ ] CR resource
-- [ ] PV/PVC in the community
-- [ ] Offline idle node
+- [x] Support setting the average resource utilization during capacity planning
+- [x] Support the custom deployment order of multiple applications
+- [ ] Support Custom Resource
+- [ ] Topology-Aware Volume Scheduling
+- [ ] Pods Migration
 
 ## 🚀 Quick start
 
@@ -66,20 +65,19 @@ kind: Config
 metadata:
   name: simon-config
 spec:
-  # the file path to generate the initial cluster, select one of the following
+  # the file path to generate the fake cluster, select one of the following
   # cluster:
-  #   customConfig: the path of the custom cluster
-  #   kubeConfig: the path of the kube-config file in the real cluster
+  #   customConfig: custom cluster file path
+  #   kubeConfig: The kube-config file path of the real cluster
   cluster:
     customConfig: example/cluster/demo_1
 
   # list of applications to be deployed
-  # support chart: a folder or package.
-  # for multiple applications, configuration order as deployment order
+  # for multiple applications, the order of deployment is the order of configuration in the list
   # appList:
-  #   name: set name to distinguish conveniently applications
+  #   name: set name to distinguish applications conveniently
   #   path: the path of the application files
-  #   chart: an omitempty field; If the value of chart is specified as true, it means that the application is a chart; If false or not specified, it is a non-chart
+  #   chart: if the value of chart is specified as true, it means that the application is a chart; If false or not set, it is a non-chart
   appList:
     - name: yoda
       path: example/application/charts/yoda
@@ -93,12 +91,11 @@ spec:
     - name: more_pods
       path: example/application/more_pods
 
-  # the node file to automatically adjust the cluster size. The node specification can be specified arbitrarily according to the demand.
-  # at present, only one node can be configured
+  # the specification of node to be added, which can be file path or folder path
   newNode: example/newnode
 ```
 
-Results View
+Preview
 
 ![](./docs/images/simon.png)
 

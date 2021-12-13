@@ -7,17 +7,17 @@
 
 ## 介绍
 
-Open-Simulator 是一个服务于Kubernetes集群部署的**集群模拟组件**。Open-Simulator 主要通过模拟**Kube-Controller-Manager**和**Kube-Scheduler**组件的能力，以生成源于 [workload](https://kubernetes.io/zh/docs/concepts/workloads/) 资源的Pod实例，并基于调度策略来调度Pod，达到模拟在真实环境中部署的效果，最后用户根据部署情况得到一个合理的部署方案，亦或者自己酌情制定。
+Open-Simulator 是 Kubernetes 下的**集群模拟组件**。通过 Open-Simulator 的模拟能力，用户可创建虚拟 Kubernetes 集群，并在其上部署 [Workload](https://kubernetes.io/zh/docs/concepts/workloads/) 资源。Open-Simulator 会模拟 [Kube-Controller-Manager](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-controller-manager/) 在虚拟集群中生成 Workload 资源的 Pod 实例，并模拟 [Kube-Scheduler](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-scheduler/) 对 Pod 进行调度。
 
 ## 使用场景
 
-Open-Simulator 意图解决 Kubernetes 中棘手的**容量规划**问题：
+Open-Simulator 意图通过解决如下问题，以减少人力交付成本和运维成本，并提高集群资源整体利用率：
 
-- 集群规格计算：根据现有的服务器规格（CPU核数、内存、磁盘）以及应用部署文件（包含了指定副本数、亲和性规则、资源申请量的各种 workloads ），计算出成功安装集群所需要的**最少节点数量**；
-- 应用部署模拟：在已运行的 Kubernetes 集群中，模拟待部署的应用是否可以成功部署；若集群规模不满足部署情况，则给出集群最少扩容建议，以解决 All-or-Nothing 应用调度的问题；
-- 空闲节点清理：在已运行的 Kubernetes 集群中，根据自定义规则筛选并下线空闲节点。
-
-通过合理的**容量规划**，用户可减少人力交付成本和运维成本，并可提高集群资源整体利用率。
+- 容量规划：根据现有服务器规格（包含CPU核数、内存、磁盘）以及应用部署文件（包含指定副本数、亲和性规则、资源申请量），计算出成功安装集群及其应用所需要的**最少节点数量**；
+- 仿真调度：在已运行的 Kubernetes 集群中，判断待部署的应用是否可以一次性部署成功部署；若集群规模不满足部署要求，则给出集群最少扩容建议，以解决 All-or-Nothing 应用调度问题；
+- 容器迁移：在已运行的 Kubernetes 集群中，根据策略对 Pod 进行节点间迁移。未来考虑支持如下迁移策略：
+  - 集群缩容
+  - 碎片整理
 
 ## ✅ 特性
 
@@ -25,7 +25,8 @@ Open-Simulator 意图解决 Kubernetes 中棘手的**容量规划**问题：
 - [x] 支持部署 Workload ，种类包含
   - [x] Deployment
   - [x] StatefulSet
-  - [x] Daemonset
+  - [x] DaemonSet
+  - [x] ReplicaSet
   - [x] Job
   - [x] CronJob
   - [x] Pod
@@ -36,8 +37,8 @@ Open-Simulator 意图解决 Kubernetes 中棘手的**容量规划**问题：
 - [x] 支持设置集群资源水位
 - [x] 支持设置 Workload 部署顺序
 - [ ] 支持解析 CR 资源
-- [ ] 支持处理 PV/PVC 资源
-- [ ] 支持清理空闲节点
+- [ ] 支持存储卷感知调度
+- [ ] 容器迁移
 
 ## 🚀 快速开始
 
@@ -73,12 +74,12 @@ spec:
   cluster:
     customConfig: example/cluster/demo_1
 
-  # appList: 导入需部署的应用
+  # appList: 导入需部署的应用列表
   # 支持chart和非chart文件；文件格式可为文件夹或者压缩包格式。
   # 多个应用时，部署顺序为配置顺序
   #   name: 应用名称
   #   path: 应用文件
-  #   chart: 缺省；若chart指定为true，则表示应用文件为chart文件，若为false或者不指定chart则为非chart文件
+  #   chart: 若chart指定为true，则表示应用文件为chart文件，若为false或者不指定chart字段则为非chart文件
   appList:
     - name: yoda
       path: example/application/charts/yoda
