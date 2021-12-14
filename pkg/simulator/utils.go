@@ -272,9 +272,9 @@ func GetAndSetSchedulerConfig(schedulerConfig string) (*config.CompletedConfig, 
 	return cc, nil
 }
 
-// MatchAndSetStorageAnnotationOnNode add storage information configured by json file, belonging to the node that matches
+// MatchAndSetLocalStorageAnnotationOnNode add storage information configured by json file, belonging to the node that matches
 // the json file name, to annotation of this node
-func MatchAndSetStorageAnnotationOnNode(nodes []*corev1.Node, dir string) {
+func MatchAndSetLocalStorageAnnotationOnNode(nodes []*corev1.Node, dir string) {
 	storageInfo := make(map[string]string)
 
 	filePaths, _ := utils.ParseFilePath(dir)

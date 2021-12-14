@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"sigs.k8s.io/yaml"
 	"strconv"
+
+	"sigs.k8s.io/yaml"
 
 	survey "github.com/AlecAivazis/survey/v2"
 	localcache "github.com/alibaba/open-local/pkg/scheduler/algorithm/cache"
@@ -29,15 +30,17 @@ type Options struct {
 	DefaultSchedulerConfigFile string
 	UseGreed                   bool
 	Interactive                bool
+	ExtendedResources          []string
 }
 
 type Applier struct {
-	cluster         v1alpha1.Cluster
-	appList         []v1alpha1.AppInfo
-	newNode         string
-	schedulerConfig string
-	useGreed        bool
-	interactive     bool
+	cluster           v1alpha1.Cluster
+	appList           []v1alpha1.AppInfo
+	newNode           string
+	schedulerConfig   string
+	useGreed          bool
+	interactive       bool
+	extendedResources []string
 }
 
 type Interface interface {
@@ -61,12 +64,13 @@ func NewApplier(opts Options) Interface {
 	}
 
 	applier := &Applier{
-		cluster:         simonCR.Spec.Cluster,
-		appList:         simonCR.Spec.AppList,
-		newNode:         simonCR.Spec.NewNode,
-		schedulerConfig: opts.DefaultSchedulerConfigFile,
-		useGreed:        opts.UseGreed,
-		interactive:     opts.Interactive,
+		cluster:           simonCR.Spec.Cluster,
+		appList:           simonCR.Spec.AppList,
+		newNode:           simonCR.Spec.NewNode,
+		schedulerConfig:   opts.DefaultSchedulerConfigFile,
+		useGreed:          opts.UseGreed,
+		interactive:       opts.Interactive,
+		extendedResources: opts.ExtendedResources,
 	}
 
 	if err := validate(applier); err != nil {
@@ -137,7 +141,7 @@ func (applier *Applier) Run() (err error) {
 	if len(nodeResource.Nodes) == 0 {
 		return fmt.Errorf("the new node directory(%s) has no nodes ", applier.newNode)
 	}
-	simulator.MatchAndSetStorageAnnotationOnNode(nodeResource.Nodes, applier.newNode)
+	simulator.MatchAndSetLocalStorageAnnotationOnNode(nodeResource.Nodes, applier.newNode)
 
 	// confirm the list of applications that needed to be deployed in interactive mode
 	var selectedAppNameList []string
@@ -207,7 +211,7 @@ func (applier *Applier) Run() (err error) {
 				if !utils.NodeShouldRunPod(newNode, unScheduledPod.Pod) {
 					fmt.Printf(utils.ColorRed+"failed to schedule pod %s/%s: %s the pod cannot be scheduled successfully by adding node: pod does not fit new node affinity or taints\n"+utils.ColorReset, unScheduledPod.Pod.Namespace, unScheduledPod.Pod.Name, unScheduledPod.Reason)
 					fmt.Printf(utils.ColorRed)
-					report(result.NodeStatus)
+					report(result.NodeStatus, applier.extendedResources)
 					fmt.Printf(utils.ColorReset)
 					return nil
 				}
@@ -216,7 +220,7 @@ func (applier *Applier) Run() (err error) {
 				} else if !m {
 					fmt.Printf(utils.ColorRed+"failed to schedule pod %s/%s: new node cannot meet resource requests of pod: the total requested resource of daemonset pods in new node is too large\n"+utils.ColorReset, unScheduledPod.Pod.Namespace, unScheduledPod.Pod.Name)
 					fmt.Printf(utils.ColorRed)
-					report(result.NodeStatus)
+					report(result.NodeStatus, applier.extendedResources)
 					fmt.Printf(utils.ColorReset)
 					return nil
 				}
@@ -227,7 +231,7 @@ func (applier *Applier) Run() (err error) {
 	if success {
 		fmt.Printf(utils.ColorGreen + "Success!\n" + utils.ColorReset)
 		fmt.Printf(utils.ColorGreen)
-		report(result.NodeStatus)
+		report(result.NodeStatus, applier.extendedResources)
 		fmt.Printf(utils.ColorReset)
 	} else {
 		fmt.Printf(utils.ColorRed + "we have added 100 nodes but it still failed!!" + utils.ColorReset)
@@ -295,18 +299,21 @@ func newFakeNodes(node *corev1.Node, nodeCount int) ([]*corev1.Node, error) {
 }
 
 // report print out scheduling result of pods
-func report(nodeStatuses []simulator.NodeStatus) {
+func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 	// Step 1: report pod info
 	fmt.Println("Pod Info")
 	podTable := tablewriter.NewWriter(os.Stdout)
-	podTable.SetHeader([]string{
+	header := []string{
 		"Node",
 		"Pod",
 		"CPU Requests",
 		"Memory Requests",
-		"Volume Requests",
-		"App Name",
-	})
+	}
+	if containLocalStorage(extendedResources) {
+		header = append(header, "Volume Request")
+	}
+	header = append(header, "APP Name")
+	podTable.SetHeader(header)
 
 	for _, status := range nodeStatuses {
 		node := status.Node
@@ -325,28 +332,30 @@ func report(nodeStatuses []simulator.NodeStatus) {
 			if str, exist := pod.Labels[simontype.LabelAppName]; exist {
 				appname = str
 			}
-
-			// Storage
-			podVolumeStr := ""
-			if volumes := utils.GetPodStorage(pod); volumes != nil {
-				for i, volume := range volumes.Volumes {
-					volumeQuantity := resource.NewQuantity(volume.Size, resource.BinarySI)
-					volumeStr := fmt.Sprintf("<%d> %s: %s", i, volume.Kind, volumeQuantity.String())
-					podVolumeStr = podVolumeStr + volumeStr
-					if i+1 != len(volumes.Volumes) {
-						podVolumeStr = fmt.Sprintf("%s\n", podVolumeStr)
-					}
-				}
-			}
-
 			data := []string{
 				node.Name,
 				fmt.Sprintf("%s/%s", pod.Namespace, pod.Name),
 				fmt.Sprintf("%s(%d%%)", cpuReq.String(), int64(fractionCpuReq)),
 				fmt.Sprintf("%s(%d%%)", memoryReq.String(), int64(fractionMemoryReq)),
-				podVolumeStr,
-				appname,
 			}
+
+			// Storage
+			if containLocalStorage(extendedResources) {
+				podVolumeStr := ""
+				if volumes := utils.GetPodStorage(pod); volumes != nil {
+					for i, volume := range volumes.Volumes {
+						volumeQuantity := resource.NewQuantity(volume.Size, resource.BinarySI)
+						volumeStr := fmt.Sprintf("<%d> %s: %s", i, volume.Kind, volumeQuantity.String())
+						podVolumeStr = podVolumeStr + volumeStr
+						if i+1 != len(volumes.Volumes) {
+							podVolumeStr = fmt.Sprintf("%s\n", podVolumeStr)
+						}
+					}
+				}
+				data = append(data, podVolumeStr)
+			}
+
+			data = append(data, appname)
 			podTable.Append(data)
 		}
 	}
@@ -405,57 +414,62 @@ func report(nodeStatuses []simulator.NodeStatus) {
 	fmt.Println()
 
 	// Step 3: report node storage info
-	fmt.Println("Node Storage Info")
-	nodeStorageTable := tablewriter.NewWriter(os.Stdout)
-	nodeStorageTable.SetHeader([]string{
-		"Node",
-		"Storage Kind",
-		"Storage Name",
-		"Storage Allocatable",
-		"Storage Requests",
-	})
-	for _, status := range nodeStatuses {
-		node := status.Node
-		if nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]; exist {
-			var nodeStorage utils.NodeStorage
-			if err := ffjson.Unmarshal([]byte(nodeStorageStr), &nodeStorage); err != nil {
-				log.Fatalf("failed to unmarshal storage information of node(%s): %v", node.Name, err)
-			}
-			var storageData []string
-			for _, vg := range nodeStorage.VGs {
-				capacity := resource.NewQuantity(vg.Capacity, resource.BinarySI)
-				request := resource.NewQuantity(vg.Requested, resource.BinarySI)
-				storageData = []string{
-					node.Name,
-					"VG",
-					vg.Name,
-					capacity.String(),
-					fmt.Sprintf("%s(%d%%)", request.String(), int64(float64(vg.Requested)/float64(vg.Capacity)*100)),
-				}
-				nodeStorageTable.Append(storageData)
-			}
+	if len(extendedResources) != 0 {
+		fmt.Println("Extended Resource Info")
+		if containLocalStorage(extendedResources) {
+			fmt.Println("Node Local Storage")
+			nodeStorageTable := tablewriter.NewWriter(os.Stdout)
+			nodeStorageTable.SetHeader([]string{
+				"Node",
+				"Storage Kind",
+				"Storage Name",
+				"Storage Allocatable",
+				"Storage Requests",
+			})
+			for _, status := range nodeStatuses {
+				node := status.Node
+				if nodeStorageStr, exist := node.Annotations[simontype.AnnoNodeLocalStorage]; exist {
+					var nodeStorage utils.NodeStorage
+					if err := ffjson.Unmarshal([]byte(nodeStorageStr), &nodeStorage); err != nil {
+						log.Fatalf("failed to unmarshal storage information of node(%s): %v", node.Name, err)
+					}
+					var storageData []string
+					for _, vg := range nodeStorage.VGs {
+						capacity := resource.NewQuantity(vg.Capacity, resource.BinarySI)
+						request := resource.NewQuantity(vg.Requested, resource.BinarySI)
+						storageData = []string{
+							node.Name,
+							"VG",
+							vg.Name,
+							capacity.String(),
+							fmt.Sprintf("%s(%d%%)", request.String(), int64(float64(vg.Requested)/float64(vg.Capacity)*100)),
+						}
+						nodeStorageTable.Append(storageData)
+					}
 
-			for _, device := range nodeStorage.Devices {
-				capacity := resource.NewQuantity(device.Capacity, resource.BinarySI)
-				used := "unused"
-				if device.IsAllocated {
-					used = "used"
+					for _, device := range nodeStorage.Devices {
+						capacity := resource.NewQuantity(device.Capacity, resource.BinarySI)
+						used := "unused"
+						if device.IsAllocated {
+							used = "used"
+						}
+						storageData = []string{
+							node.Name,
+							fmt.Sprintf("Device(%s)", device.MediaType),
+							device.Device,
+							capacity.String(),
+							used,
+						}
+						nodeStorageTable.Append(storageData)
+					}
 				}
-				storageData = []string{
-					node.Name,
-					fmt.Sprintf("Device(%s)", device.MediaType),
-					device.Device,
-					capacity.String(),
-					used,
-				}
-				nodeStorageTable.Append(storageData)
 			}
+			nodeStorageTable.SetAutoMergeCellsByColumnIndex([]int{0})
+			nodeStorageTable.SetRowLine(true)
+			nodeStorageTable.SetAlignment(tablewriter.ALIGN_LEFT)
+			nodeStorageTable.Render() // Send output
 		}
 	}
-	nodeStorageTable.SetAutoMergeCellsByColumnIndex([]int{0})
-	nodeStorageTable.SetRowLine(true)
-	nodeStorageTable.SetAlignment(tablewriter.ALIGN_LEFT)
-	nodeStorageTable.Render() // Send output
 }
 
 func satisfyResourceSetting(nodeStatuses []simulator.NodeStatus) (bool, string, error) {
@@ -544,4 +558,13 @@ func satisfyResourceSetting(nodeStatuses []simulator.NodeStatus) (bool, string, 
 	}
 
 	return true, "", nil
+}
+
+func containLocalStorage(extendedResources []string) bool {
+	for _, res := range extendedResources {
+		if res == "open-local" {
+			return true
+		}
+	}
+	return false
 }
