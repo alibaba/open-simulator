@@ -370,16 +370,10 @@ func report(nodeStatuses []simulator.NodeStatus) {
 		"New Node",
 	})
 
-	var allPods []corev1.Pod
-	for _, status := range nodeStatuses {
-		for _, pod := range status.Pods {
-			allPods = append(allPods, *pod)
-		}
-	}
 	for _, status := range nodeStatuses {
 		node := status.Node
 		allocatable := node.Status.Allocatable
-		reqs, _ := utils.GetPodsTotalRequestsAndLimitsByNodeName(allPods, node.Name)
+		reqs, _ := utils.GetPodsTotalRequestsAndLimitsByNodeName(status.Pods, node.Name)
 		nodeCpuReq, nodeMemoryReq := reqs[corev1.ResourceCPU], reqs[corev1.ResourceMemory]
 		nodeCpuReqFraction := float64(nodeCpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
 		nodeMemoryReqFraction := float64(nodeMemoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
@@ -499,19 +493,13 @@ func satisfyResourceSetting(nodeStatuses []simulator.NodeStatus) (bool, string, 
 		corev1.ResourceMemory: resource.NewQuantity(0, resource.DecimalSI),
 	}
 	totalVGResource := localcache.SharedResource{}
-	var allPods []corev1.Pod
-	for _, status := range nodeStatuses {
-		for _, pod := range status.Pods {
-			allPods = append(allPods, *pod)
-		}
-	}
 
 	for _, status := range nodeStatuses {
 		node := status.Node
 		totalAllocatableResource[corev1.ResourceCPU].Add(*node.Status.Allocatable.Cpu())
 		totalAllocatableResource[corev1.ResourceMemory].Add(*node.Status.Allocatable.Memory())
 
-		reqs, _ := utils.GetPodsTotalRequestsAndLimitsByNodeName(allPods, node.Name)
+		reqs, _ := utils.GetPodsTotalRequestsAndLimitsByNodeName(status.Pods, node.Name)
 		totalUsedResource[corev1.ResourceCPU].Add(reqs[corev1.ResourceCPU])
 		totalUsedResource[corev1.ResourceMemory].Add(reqs[corev1.ResourceMemory])
 

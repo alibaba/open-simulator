@@ -520,7 +520,7 @@ func ValidatePod(pod *corev1.Pod) error {
 		for _, err := range errs {
 			errStrs = append(errStrs, fmt.Sprintf("%v", err))
 		}
-		return fmt.Errorf("invalid pod: %#v ", strings.Join(errStrs, "\n"))
+		return fmt.Errorf("invalid pod(%s/%s): %#v ", pod.Namespace, pod.Name, strings.Join(errStrs, "\n"))
 	}
 	return nil
 }
@@ -664,13 +664,13 @@ func ValidateNode(node *corev1.Node) error {
 	return nil
 }
 
-func GetPodsTotalRequestsAndLimitsByNodeName(pods []corev1.Pod, nodeName string) (map[corev1.ResourceName]resource.Quantity, map[corev1.ResourceName]resource.Quantity) {
+func GetPodsTotalRequestsAndLimitsByNodeName(pods []*corev1.Pod, nodeName string) (map[corev1.ResourceName]resource.Quantity, map[corev1.ResourceName]resource.Quantity) {
 	reqs, limits := make(map[corev1.ResourceName]resource.Quantity), make(map[corev1.ResourceName]resource.Quantity)
 	for _, pod := range pods {
 		if pod.Spec.NodeName != nodeName {
 			continue
 		}
-		podReqs, podLimits := resourcehelper.PodRequestsAndLimits(&pod)
+		podReqs, podLimits := resourcehelper.PodRequestsAndLimits(pod)
 		for podReqName, podReqValue := range podReqs {
 			if value, ok := reqs[podReqName]; !ok {
 				reqs[podReqName] = podReqValue.DeepCopy()

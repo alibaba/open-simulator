@@ -1,4 +1,4 @@
-package deschedule
+package reschedule
 
 import (
 	"github.com/spf13/pflag"

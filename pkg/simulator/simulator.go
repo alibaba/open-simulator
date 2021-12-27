@@ -109,7 +109,6 @@ func New(opts ...Option) (Interface, error) {
 				// },
 				UpdateFunc: func(oldObj, newObj interface{}) {
 					if pod, ok := newObj.(*corev1.Pod); ok {
-						// fmt.Printf("test update pod %s/%s\n", pod.Namespace, pod.Name)
 						sim.update(pod)
 					}
 				},
