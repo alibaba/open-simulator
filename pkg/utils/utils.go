@@ -427,6 +427,7 @@ func MakeValidPod(oldPod *corev1.Pod) (*corev1.Pod, error) {
 	if newPod.Spec.SchedulerName == "" {
 		newPod.Spec.SchedulerName = simontype.DefaultSchedulerName
 	}
+	newPod.Spec.ImagePullSecrets = nil
 
 	if newPod.Spec.InitContainers != nil {
 		for i := range newPod.Spec.InitContainers {
