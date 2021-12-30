@@ -6,10 +6,11 @@ import (
 )
 
 const (
-	SimonPluginName      = "Simon"
-	OpenLocalPluginName  = "Open-Local"
-	NewNodeNamePrefix    = "simon"
-	DefaultSchedulerName = corev1.DefaultSchedulerName
+	SimonPluginName        = "Simon"
+	OpenLocalPluginName    = "Open-Local"
+	OpenGpuSharePluginName = "Open-Gpu-Share"
+	NewNodeNamePrefix      = "simon"
+	DefaultSchedulerName   = corev1.DefaultSchedulerName
 
 	StopReasonSuccess   = "everything is ok"
 	StopReasonDoNotStop = "do not stop"
@@ -21,6 +22,8 @@ const (
 	AnnoWorkloadNamespace = "simon/workload-namespace"
 	AnnoNodeLocalStorage  = "simon/node-local-storage"
 	AnnoPodLocalStorage   = "simon/pod-local-storage"
+	AnnoNodeGpuShare      = "simon/node-gpu-share"
+	AnnoPodGpuShare       = "simon/pod-gpu-share"
 
 	LabelNewNode = "simon/new-node"
 	LabelAppName = "simon/app-name"
@@ -46,4 +49,5 @@ const (
 	SeparateSymbol        = "-"
 	WorkLoadHashCodeDigit = 10
 	PodHashCodeDigit      = 5
+	MaxNumNewNode         = 100
 )

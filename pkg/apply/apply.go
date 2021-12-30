@@ -5,24 +5,28 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"sort"
 	"strconv"
 
-	"sigs.k8s.io/yaml"
-
 	survey "github.com/AlecAivazis/survey/v2"
-	localcache "github.com/alibaba/open-local/pkg/scheduler/algorithm/cache"
-	"github.com/alibaba/open-simulator/pkg/api/v1alpha1"
-	"github.com/alibaba/open-simulator/pkg/chart"
-	"github.com/alibaba/open-simulator/pkg/simulator"
-	simontype "github.com/alibaba/open-simulator/pkg/type"
-	"github.com/alibaba/open-simulator/pkg/utils"
 	"github.com/olekukonko/tablewriter"
 	"github.com/pquerna/ffjson/ffjson"
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 	resourcehelper "k8s.io/kubectl/pkg/util/resource"
+	"sigs.k8s.io/yaml"
+
+	gpusharecache "github.com/alibaba/open-gpu-share/pkg/cache"
+	gpushareutils "github.com/alibaba/open-gpu-share/pkg/utils"
+	localcache "github.com/alibaba/open-local/pkg/scheduler/algorithm/cache"
+	"github.com/alibaba/open-simulator/pkg/api/v1alpha1"
+	"github.com/alibaba/open-simulator/pkg/chart"
+	"github.com/alibaba/open-simulator/pkg/simulator"
+	simontype "github.com/alibaba/open-simulator/pkg/type"
+	"github.com/alibaba/open-simulator/pkg/utils"
 )
 
 type Options struct {
@@ -176,7 +180,7 @@ func (applier *Applier) Run() (err error) {
 	// only support temporarily adding a type of node at present
 	newNode := nodeResource.Nodes[0]
 	var result *simulator.SimulateResult
-	for i := 0; i < 100; i++ {
+	for i := 0; i < simontype.MaxNumNewNode; i++ {
 		newClusterResource := clusterResource
 		// add nodes to get a successful scheduling
 		fmt.Printf(utils.ColorYellow+"add %d node(s)\n"+utils.ColorReset, i)
@@ -234,7 +238,7 @@ func (applier *Applier) Run() (err error) {
 		report(result.NodeStatus, applier.extendedResources)
 		fmt.Printf(utils.ColorReset)
 	} else {
-		fmt.Printf(utils.ColorRed + "we have added 100 nodes but it still failed!!" + utils.ColorReset)
+		fmt.Printf(utils.ColorRed + fmt.Sprintf("we have added %d nodes but it still failed!!", simontype.MaxNumNewNode) + utils.ColorReset)
 	}
 
 	return nil
@@ -312,6 +316,9 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 	if containLocalStorage(extendedResources) {
 		header = append(header, "Volume Request")
 	}
+	if containGpu(extendedResources) {
+		header = append(header, "GPU Mem Requests")
+	}
 	header = append(header, "APP Name")
 	podTable.SetHeader(header)
 
@@ -355,6 +362,14 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 				data = append(data, podVolumeStr)
 			}
 
+			// GPU
+			if containGpu(extendedResources) {
+				req, limit := resourcehelper.PodRequestsAndLimits(pod)
+				gpuMemReq, _ := req[gpushareutils.ResourceName], limit[gpushareutils.ResourceName]
+				fractionGpuMemReq := float64(gpuMemReq.Value()) / float64(allocatable.Name(gpushareutils.ResourceName, resource.BinarySI).Value()) * 100
+				data = append(data, fmt.Sprintf("%s(%d%%)", gpuMemReq.String(), int64(fractionGpuMemReq)))
+			}
+
 			data = append(data, appname)
 			podTable.Append(data)
 		}
@@ -369,15 +384,24 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 	// Step 2: report node info
 	fmt.Println("Node Info")
 	nodeTable := tablewriter.NewWriter(os.Stdout)
-	nodeTable.SetHeader([]string{
+	nodeTableHeader := []string{
 		"Node",
 		"CPU Allocatable",
 		"CPU Requests",
 		"Memory Allocatable",
 		"Memory Requests",
+	}
+	if containGpu(extendedResources) {
+		nodeTableHeader = append(nodeTableHeader, []string{
+			"GPU Mem Allocatable",
+			"GPU Mem Requests",
+		}...)
+	}
+	nodeTableHeader = append(nodeTableHeader, []string{
 		"Pod Count",
 		"New Node",
-	})
+	}...)
+	nodeTable.SetHeader(nodeTableHeader)
 
 	var allPods []corev1.Pod
 	for _, status := range nodeStatuses {
@@ -403,9 +427,19 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 			fmt.Sprintf("%s(%d%%)", nodeCpuReq.String(), int64(nodeCpuReqFraction)),
 			allocatable.Memory().String(),
 			fmt.Sprintf("%s(%d%%)", nodeMemoryReq.String(), int64(nodeMemoryReqFraction)),
+		}
+		if containGpu(extendedResources) {
+			nodeGpuMemReq := reqs[gpushareutils.ResourceName]
+			nodeGpuMemFraction := float64(nodeGpuMemReq.Value()) / float64(allocatable.Name(gpushareutils.ResourceName, resource.BinarySI).Value()) * 100
+			data = append(data, []string{
+				allocatable.Name(gpushareutils.ResourceName, resource.BinarySI).String(),
+				fmt.Sprintf("%s(%d%%)", nodeGpuMemReq.String(), int64(nodeGpuMemFraction)),
+			}...)
+		}
+		data = append(data, []string{
 			fmt.Sprintf("%d", len(status.Pods)),
 			newNode,
-		}
+		}...)
 		nodeTable.Append(data)
 	}
 	nodeTable.SetRowLine(true)
@@ -468,6 +502,58 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 			nodeStorageTable.SetRowLine(true)
 			nodeStorageTable.SetAlignment(tablewriter.ALIGN_LEFT)
 			nodeStorageTable.Render() // Send output
+		}
+		if containGpu(extendedResources) {
+			var podList []*corev1.Pod
+			fmt.Println("GPU Node Resource")
+			nodeGpuTable := tablewriter.NewWriter(os.Stdout)
+			nodeGpuTable.SetHeader([]string{"Node", "GPU ID", "GPU Request/Capacity", "Pod List"})
+			for _, status := range nodeStatuses {
+				node := status.Node
+				podList = append(podList, status.Pods...)
+				reqs, _ := utils.GetPodsTotalRequestsAndLimitsByNodeName(allPods, node.Name)
+				if nodeGpuInfoStr, exist := node.Annotations[simontype.AnnoNodeGpuShare]; exist {
+					var nodeGpuInfo gpusharecache.NodeGpuInfo
+					if err := ffjson.Unmarshal([]byte(nodeGpuInfoStr), &nodeGpuInfo); err != nil {
+						klog.Errorf("failed to unmarshal storage information of node(%s: %v", node.Name, err)
+						continue
+					}
+					nodeGpuMemReq := reqs[gpushareutils.ResourceName]
+					nodeOutputLine := []string{fmt.Sprintf("%s (%s)", node.Name, nodeGpuInfo.GpuModel), fmt.Sprintf("%d GPUs", nodeGpuInfo.GpuCount), fmt.Sprintf("%s/%s", nodeGpuMemReq.String(), nodeGpuInfo.GpuTotalMemory.String()), fmt.Sprintf("%d Pods", nodeGpuInfo.NumPods)}
+					nodeGpuTable.Append(nodeOutputLine)
+
+					for idx := 0; idx < len(nodeGpuInfo.DevsBrief); idx += 1 {
+						if deviceInfoBrief, ok := nodeGpuInfo.DevsBrief[idx]; ok {
+							devTotalGpuMem := deviceInfoBrief.GpuTotalMemory
+							if devTotalGpuMem.Value() <= 0 {
+								continue // either no GPU or not allocated
+							}
+							devUsedGpuMem := deviceInfoBrief.GpuUsedMemory
+							nodeOutputLineDev := []string{fmt.Sprintf("%s (%s)", node.Name, nodeGpuInfo.GpuModel), fmt.Sprintf("%d", idx), fmt.Sprintf("%s/%s", devUsedGpuMem.String(), devTotalGpuMem.String()), fmt.Sprintf("%s", deviceInfoBrief.PodList)}
+							nodeGpuTable.Append(nodeOutputLineDev)
+						}
+					}
+				}
+			}
+			nodeGpuTable.SetAutoMergeCellsByColumnIndex([]int{0})
+			nodeGpuTable.SetRowLine(true)
+			nodeGpuTable.SetAlignment(tablewriter.ALIGN_LEFT)
+			nodeGpuTable.Render() // Send output
+
+			fmt.Println("\nPod -> Node Map")
+			podGpuTable := tablewriter.NewWriter(os.Stdout)
+			podGpuTable.SetHeader([]string{"Pod", "CPU Req", "Mem Req", "GPU Req", "Host Node"})
+			sort.Slice(podList, func(i, j int) bool { return podList[i].Name < podList[j].Name })
+			for _, pod := range podList {
+				req, limit := resourcehelper.PodRequestsAndLimits(pod)
+				gpuMemReq, _ := req[gpushareutils.ResourceName], limit[gpushareutils.ResourceName]
+				cpuReq, _, memoryReq, _ := req[corev1.ResourceCPU], limit[corev1.ResourceCPU], req[corev1.ResourceMemory], limit[corev1.ResourceMemory]
+				podOutputLine := []string{pod.Name, cpuReq.String(), memoryReq.String(), gpuMemReq.String(), pod.Spec.NodeName}
+				podGpuTable.Append(podOutputLine)
+			}
+			podGpuTable.SetRowLine(true)
+			podGpuTable.SetAlignment(tablewriter.ALIGN_LEFT)
+			podGpuTable.Render() // Send output
 		}
 	}
 }
@@ -563,6 +649,15 @@ func satisfyResourceSetting(nodeStatuses []simulator.NodeStatus) (bool, string, 
 func containLocalStorage(extendedResources []string) bool {
 	for _, res := range extendedResources {
 		if res == "open-local" {
+			return true
+		}
+	}
+	return false
+}
+
+func containGpu(extendedResources []string) bool {
+	for _, res := range extendedResources {
+		if res == "gpu" {
 			return true
 		}
 	}

@@ -1,0 +1,37 @@
+package cache
+
+import (
+	"log"
+
+	"k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	corelisters "k8s.io/client-go/listers/core/v1"
+	clientgocache "k8s.io/client-go/tools/cache"
+)
+
+var (
+	ConfigMapLister         corelisters.ConfigMapLister
+	ConfigMapInformerSynced clientgocache.InformerSynced
+)
+
+func getConfigMap(name string) *v1.ConfigMap {
+	if ConfigMapLister == nil {
+		return nil
+	}
+
+	configMap, err := ConfigMapLister.ConfigMaps(metav1.NamespaceSystem).Get(name)
+
+	// If we can't get the configmap just return nil. The resync will eventually
+	// sync things up.
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.Printf("warn: find configmap with error: %v", err)
+			utilruntime.HandleError(err)
+		}
+		return nil
+	}
+
+	return configMap
+}

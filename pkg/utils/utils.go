@@ -11,9 +11,6 @@ import (
 	"sort"
 	"strings"
 
-	localcache "github.com/alibaba/open-local/pkg/scheduler/algorithm/cache"
-	localutils "github.com/alibaba/open-local/pkg/utils"
-	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/pquerna/ffjson/ffjson"
 	log "github.com/sirupsen/logrus"
 	"helm.sh/helm/v3/pkg/releaseutil"
@@ -36,6 +33,11 @@ import (
 	apiv1 "k8s.io/kubernetes/pkg/apis/core/v1"
 	"k8s.io/kubernetes/pkg/apis/core/validation"
 	"k8s.io/kubernetes/pkg/controller/daemon"
+
+	gpusharecache "github.com/alibaba/open-gpu-share/pkg/cache"
+	localcache "github.com/alibaba/open-local/pkg/scheduler/algorithm/cache"
+	localutils "github.com/alibaba/open-local/pkg/utils"
+	simontype "github.com/alibaba/open-simulator/pkg/type"
 )
 
 // ParseFilePath converts recursively directory path to a slice of file paths
@@ -427,6 +429,7 @@ func MakeValidPod(oldPod *corev1.Pod) (*corev1.Pod, error) {
 	if newPod.Spec.SchedulerName == "" {
 		newPod.Spec.SchedulerName = simontype.DefaultSchedulerName
 	}
+	newPod.Spec.ImagePullSecrets = nil
 
 	if newPod.Spec.InitContainers != nil {
 		for i := range newPod.Spec.InitContainers {
@@ -900,4 +903,18 @@ func SetDaemonSetPodNodeNameByNodeAffinity(affinity *corev1.Affinity, nodename s
 	affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = nodeSelectorTerms
 
 	return affinity
+}
+
+func GetGpuNodeInfoFromAnnotation(node *corev1.Node) (*gpusharecache.NodeGpuInfo, error) {
+	nodeGpuInfoStr, exist := node.Annotations[simontype.AnnoNodeGpuShare]
+	if !exist {
+		return nil, nil
+	}
+
+	nodeGpuInfo := new(gpusharecache.NodeGpuInfo)
+	if err := ffjson.Unmarshal([]byte(nodeGpuInfoStr), gpusharecache.NodeGpuInfo{}); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal GPU info of node %s: %s ", node.Name, err.Error())
+	}
+
+	return nodeGpuInfo, nil
 }

@@ -1,0 +1,20 @@
+#  CR资源说明：由于CR资源行为存在不确定性，open-simulator暂时未支持CR资源。但我们计划制定一种CR资源规范，来消除其不确定性，从而达到支持的目的。
+
+apiVersion: simon/v1alpha1
+kind: Config
+metadata:
+  name: simon-gpushare-config
+spec:
+  # cluster: 导入生成初始集群的配置文件(以下皆为文件路径)
+  #   customConfig: 自定义集群的配置文件
+  #   kubeConfig: 真实集群的kube-config文件
+  #   以上两者取其一
+  cluster:
+    customConfig: example/cluster/gpushare
+
+  appList:
+    - name: pai_gpu
+      path: example/application/gpushare
+
+  # newNode: 导入调整集群规模的节点配置文件，节点规格可根据需求任意指定。目前只支持配置一个节点
+  newNode: example/newnode/gpushare
