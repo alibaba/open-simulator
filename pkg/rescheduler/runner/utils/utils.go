@@ -1,7 +1,9 @@
-package runner
+package utils
 
 import (
+	"github.com/alibaba/open-simulator/pkg/simulator"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
+	"github.com/alibaba/open-simulator/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -9,7 +11,31 @@ import (
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 )
 
-func GetWorkersAndMasters(nodes []corev1.Node) ([]corev1.Node, []corev1.Node) {
+type PodSlice []*corev1.Pod
+
+func NormalizePodsNodes(nodes []corev1.Node, pods []corev1.Pod) ([]*corev1.Node, []*corev1.Pod, error) {
+	normalizedNodes, normalizedPods := make([]*corev1.Node, 0), make([]*corev1.Pod, 0)
+	for _, node := range nodes {
+		nodeCopy := node.DeepCopy()
+		newNode, err := utils.MakeValidNodeByNode(nodeCopy, nodeCopy.Name)
+		if err != nil {
+			return nil, nil, err
+		}
+		normalizedNodes = append(normalizedNodes, newNode)
+	}
+	for _, pod := range pods {
+		podCopy := pod.DeepCopy()
+		newPod, err := utils.MakeValidPod(podCopy)
+		if err != nil {
+			return nil, nil, err
+		}
+		normalizedPods = append(normalizedPods, newPod)
+	}
+
+	return normalizedNodes, normalizedPods, nil
+}
+
+func GetMastersAndWorkers(nodes []corev1.Node) ([]corev1.Node, []corev1.Node) {
 	var masters, workers []corev1.Node
 	for _, node := range nodes {
 		if _, exist := node.Labels["node-role.kubernetes.io/master"]; exist {
@@ -22,9 +48,7 @@ func GetWorkersAndMasters(nodes []corev1.Node) ([]corev1.Node, []corev1.Node) {
 	return masters, workers
 }
 
-type PodSlice []*corev1.Pod
-
-func BuildMapForNodesPods(nodes []corev1.Node, pods []corev1.Pod) map[*corev1.Node]PodSlice {
+func BuildMapForNodesPods(nodes []*corev1.Node, pods []*corev1.Pod) map[*corev1.Node]PodSlice {
 	layout := make(map[*corev1.Node]PodSlice)
 	for _, node := range nodes {
 		newNode := node.DeepCopy()
@@ -92,7 +116,7 @@ func TaintExists(taint corev1.Taint, taints []corev1.Taint) bool {
 	return false
 }
 
-func RemoveDaemonPod(pods []*corev1.Pod) []*corev1.Pod {
+func RemoveDaemonAndStaticPod(pods []*corev1.Pod) []*corev1.Pod {
 	var newPods []*corev1.Pod
 	for _, pod := range pods {
 		if !OwnedByDaemonset(pod.OwnerReferences) && !kubetypes.IsMirrorPod(pod) && !kubetypes.IsStaticPod(pod) {
@@ -123,6 +147,28 @@ func SetNoScheduleTaintOnNode(node *corev1.Node) {
 		Effect: corev1.TaintEffectNoSchedule,
 	}
 	node.Spec.Taints = append(node.Spec.Taints, unschedulableTaint)
+}
+
+func GetClusterArgsForSimulation(layout map[*corev1.Node]PodSlice) simulator.ResourceTypes {
+	var nodes []*corev1.Node
+	var pods []*corev1.Pod
+	for node, podsOnNode := range layout {
+		nodes = append(nodes, node)
+		pods = append(pods, podsOnNode...)
+	}
+
+	return simulator.ResourceTypes{
+		Nodes: nodes,
+		Pods:  pods,
+	}
+}
+
+func UpdateLayoutByResult(nodeStatus []simulator.NodeStatus) map[*corev1.Node]PodSlice {
+	newLayout := make(map[*corev1.Node]PodSlice)
+	for _, status := range nodeStatus {
+		newLayout[status.Node] = status.Pods
+	}
+	return newLayout
 }
 
 func OwnedByDaemonset(refs []metav1.OwnerReference) bool {

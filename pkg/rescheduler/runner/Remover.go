@@ -2,58 +2,58 @@ package runner
 
 import (
 	"fmt"
+	"github.com/alibaba/open-simulator/pkg/rescheduler/runner/utils"
 	"github.com/alibaba/open-simulator/pkg/simulator"
+
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sort"
 )
 
-type DefaultRunner struct {
+type RemoverOptions struct {
+	LabelFilter               []string
+	MaximumAverageUtilization int
 }
 
-type PodPlan struct {
-	PodName      string
-	PodNamespace string
-	FromNode     string
-	ToNode       string
-	PodOwnerRefs []metav1.OwnerReference
+type Remover struct {
+	labelFilter               []string
+	MaximumAverageUtilization int
 }
 
-type ReschedulePlan struct {
-	Node     string
-	PodPlans []PodPlan
+func NewRemover(opts RemoverOptions) Runner {
+	return &Remover{
+		labelFilter: opts.LabelFilter,
+	}
 }
 
-type Runner interface {
-	Run(allNodes []corev1.Node, allPods []corev1.Pod) ([]ReschedulePlan, error)
-}
-
-func NewDefaultRunner() Runner {
-	return &DefaultRunner{}
-}
-
-func (runner DefaultRunner) Run(allNodes []corev1.Node, allPods []corev1.Pod) ([]ReschedulePlan, error) {
-	_, workers := GetWorkersAndMasters(allNodes)
+// TODO: Pod 检验、所剩worker的数量、资源水位
+func (r Remover) Run(allNodes []corev1.Node, allPods []corev1.Pod) ([]MigrationPlan, error) {
+	_, workers := utils.GetMastersAndWorkers(allNodes)
 	if len(workers) <= 1 {
 		return nil, nil
 	}
 
-	srcLayout := BuildMapForNodesPods(allNodes, allPods)
-	dstLayout := DeepCopyLayoutForNodesPods(srcLayout)
+	normalizedNodes, normalizedPods, err := utils.NormalizePodsNodes(allNodes, allPods)
+	if err != nil {
+		return nil, err
+	}
+
+	srcLayout := utils.BuildMapForNodesPods(normalizedNodes, normalizedPods)
+	dstLayout := utils.DeepCopyLayoutForNodesPods(srcLayout)
 
 	removableWorkerNames := make([]string, 0)
-	for i := 0; i < len(workers); i++ {
-		tmpLayout := DeepCopyLayoutForNodesPods(dstLayout)
+	for i := 0; i < len(workers)-1; i++ {
+		// TODO: we stop to take nodes offline when the resource average utilization reaches the setting
 
-		// step 1: select one node to be offline
-		removableWorker := captureOneRemovableWorker(tmpLayout)
+		tmpLayout := utils.DeepCopyLayoutForNodesPods(dstLayout)
+
+		removableWorker := r.captureOneRemovableWorker(tmpLayout)
 		if removableWorker == nil {
 			break
 		}
 
-		preProcessRemovableWorkerBeforeReschedule(removableWorker, tmpLayout)
+		r.preProcessRemovableWorkerBeforeReschedule(removableWorker, tmpLayout)
 
-		rst, err := simulator.Simulate(getClusterArgsForSimulation(tmpLayout), nil)
+		rst, err := simulator.Simulate(utils.GetClusterArgsForSimulation(tmpLayout), nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to simulate schedule: %v", err)
 		}
@@ -67,20 +67,20 @@ func (runner DefaultRunner) Run(allNodes []corev1.Node, allPods []corev1.Pod) ([
 			continue
 		} else {
 			removableWorkerNames = append(removableWorkerNames, removableWorker.Name)
-			dstLayout = updateLayoutByResult(rst.NodeStatus)
+			dstLayout = utils.UpdateLayoutByResult(rst.NodeStatus)
 		}
 	}
 
-	migrationPlans := makeMigrationPlan(removableWorkerNames, dstLayout)
+	migrationPlans := r.makeMigrationPlan(removableWorkerNames, dstLayout)
 
 	return migrationPlans, nil
 }
 
-func captureOneRemovableWorker(layout map[*corev1.Node]PodSlice) *corev1.Node {
+func (r Remover) captureOneRemovableWorker(layout map[*corev1.Node]utils.PodSlice) *corev1.Node {
 	var minScore int64 = 200
 	var minScoreWorker *corev1.Node = nil
 	for node, podSlice := range layout {
-		if !fitNode(node, podSlice) {
+		if !r.fitNode(node, podSlice) {
 			continue
 		}
 
@@ -88,7 +88,7 @@ func captureOneRemovableWorker(layout map[*corev1.Node]PodSlice) *corev1.Node {
 			return node
 		}
 
-		reqs := GetPodsTotalRequestsExcludeStaticAndDaemonPod(layout[node])
+		reqs := utils.GetPodsTotalRequestsExcludeStaticAndDaemonPod(layout[node])
 		nodeCpuReq, nodeMemoryReq, _ :=
 			reqs[corev1.ResourceCPU], reqs[corev1.ResourceMemory], reqs[corev1.ResourceEphemeralStorage]
 		allocatable := node.Status.Allocatable
@@ -103,8 +103,8 @@ func captureOneRemovableWorker(layout map[*corev1.Node]PodSlice) *corev1.Node {
 	return minScoreWorker
 }
 
-// TODO: filter the worker that has the designated pod
-func fitNode(node *corev1.Node, pods []*corev1.Pod) bool {
+// TODO: filter the worker that has the designated pod by label
+func (r Remover) fitNode(node *corev1.Node, pods []*corev1.Pod) bool {
 	if _, exist := node.Labels["node-role.kubernetes.io/master"]; exist {
 		//fmt.Printf("Non-removable(%s): not a worker\n", node.Name)
 		return false
@@ -115,7 +115,7 @@ func fitNode(node *corev1.Node, pods []*corev1.Pod) bool {
 		return false
 	}
 
-	if exist := TaintExists(corev1.Taint{
+	if exist := utils.TaintExists(corev1.Taint{
 		Key:    corev1.TaintNodeUnschedulable,
 		Effect: corev1.TaintEffectNoSchedule,
 	}, node.Spec.Taints); exist {
@@ -126,41 +126,19 @@ func fitNode(node *corev1.Node, pods []*corev1.Pod) bool {
 	return true
 }
 
-func preProcessRemovableWorkerBeforeReschedule(worker *corev1.Node, layout map[*corev1.Node]PodSlice) {
-	layout[worker] = RemoveDaemonPod(layout[worker])
-	AddOriginatedFromWhichNodeAnnotation(layout[worker])
-	InitNodeNameOfPodsOnNode(layout[worker])
-	SetNoScheduleTaintOnNode(worker)
+func (r Remover) preProcessRemovableWorkerBeforeReschedule(worker *corev1.Node, layout map[*corev1.Node]utils.PodSlice) {
+	layout[worker] = utils.RemoveDaemonAndStaticPod(layout[worker])
+	utils.AddOriginatedFromWhichNodeAnnotation(layout[worker])
+	utils.InitNodeNameOfPodsOnNode(layout[worker])
+	utils.SetNoScheduleTaintOnNode(worker)
 }
 
-func getClusterArgsForSimulation(layout map[*corev1.Node]PodSlice) simulator.ResourceTypes {
-	var nodes []*corev1.Node
-	var pods []*corev1.Pod
-	for node, podsOnNode := range layout {
-		nodes = append(nodes, node)
-		pods = append(pods, podsOnNode...)
-	}
-
-	return simulator.ResourceTypes{
-		Nodes: nodes,
-		Pods:  pods,
-	}
-}
-
-func updateLayoutByResult(nodeStatus []simulator.NodeStatus) map[*corev1.Node]PodSlice {
-	newLayout := make(map[*corev1.Node]PodSlice)
-	for _, status := range nodeStatus {
-		newLayout[status.Node] = status.Pods
-	}
-	return newLayout
-}
-
-func makeMigrationPlan(removableWorkerNames []string, dstLayout map[*corev1.Node]PodSlice) []ReschedulePlan {
-	var migrationPlans []ReschedulePlan
+func (r Remover) makeMigrationPlan(removableWorkerNames []string, dstLayout map[*corev1.Node]utils.PodSlice) []MigrationPlan {
+	var migrationPlans []MigrationPlan
 	// init
 	for _, workerName := range removableWorkerNames {
-		migrationPlan := ReschedulePlan{
-			Node:     workerName,
+		migrationPlan := MigrationPlan{
+			NodeName: workerName,
 			PodPlans: make([]PodPlan, 0),
 		}
 		migrationPlans = append(migrationPlans, migrationPlan)
@@ -178,7 +156,7 @@ func makeMigrationPlan(removableWorkerNames []string, dstLayout map[*corev1.Node
 
 	for _, pod := range migratedPods {
 		for i := range migrationPlans {
-			if migrationPlans[i].Node == pod.Annotations["originated-from"] {
+			if migrationPlans[i].NodeName == pod.Annotations["originated-from"] {
 				podPlan := PodPlan{
 					PodName:      pod.Name,
 					PodNamespace: pod.Namespace,

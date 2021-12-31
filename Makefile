@@ -1,7 +1,7 @@
 GO111MODULE=off
 GOARCH=amd64
-GOOS=darwin
-#GOOS=linux
+#GOOS=darwin
+GOOS=linux
 GO_PACKAGE=github.com/alibaba/open-simulator
 CGO_ENABLED=0
 

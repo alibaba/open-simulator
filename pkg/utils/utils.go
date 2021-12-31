@@ -815,10 +815,6 @@ func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*apps
 }
 
 func CreateKubeClient(kubeconfig string) (*clientset.Clientset, error) {
-	if len(kubeconfig) == 0 {
-		return nil, nil
-	}
-
 	var err error
 	var cfg *restclient.Config
 	master, err := GetMasterFromKubeConfig(kubeconfig)

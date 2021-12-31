@@ -18,23 +18,23 @@ import (
 func ProcessChart(name string, chartPath string) ([]string, error) {
 	chartRequested, err := loader.Load(chartPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load chart: %v", err)
 	}
 	chartRequested.Metadata.Name = name
 
 	if err := checkIfInstallable(chartRequested); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to check if installable: %v", err)
 	}
 
 	// TODO
 	var vals map[string]interface{}
 	if err := chartutil.ProcessDependencies(chartRequested, vals); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to process dependencies: %v", err)
 	}
 
 	valuesToRender, err := ToRenderValues(chartRequested, vals)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to render values: %v", err)
 	}
 
 	return renderResources(chartRequested, valuesToRender, true)
