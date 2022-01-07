@@ -11,9 +11,7 @@ import (
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 )
 
-type PodSlice []*corev1.Pod
-
-func NormalizePodsNodes(nodes []corev1.Node, pods []corev1.Pod) ([]*corev1.Node, []*corev1.Pod, error) {
+func NormalizePodsNodes(nodes []*corev1.Node, pods []*corev1.Pod) ([]*corev1.Node, []*corev1.Pod, error) {
 	normalizedNodes, normalizedPods := make([]*corev1.Node, 0), make([]*corev1.Pod, 0)
 	for _, node := range nodes {
 		nodeCopy := node.DeepCopy()
@@ -48,11 +46,11 @@ func GetMastersAndWorkers(nodes []corev1.Node) ([]corev1.Node, []corev1.Node) {
 	return masters, workers
 }
 
-func BuildMapForNodesPods(nodes []*corev1.Node, pods []*corev1.Pod) map[*corev1.Node]PodSlice {
-	layout := make(map[*corev1.Node]PodSlice)
+func BuildMapForNodesPods(nodes []*corev1.Node, pods []*corev1.Pod) map[*corev1.Node][]*corev1.Pod {
+	layout := make(map[*corev1.Node][]*corev1.Pod)
 	for _, node := range nodes {
 		newNode := node.DeepCopy()
-		layout[newNode] = make(PodSlice, 0)
+		layout[newNode] = make([]*corev1.Pod, 0)
 	}
 
 	for node := range layout {
@@ -67,12 +65,12 @@ func BuildMapForNodesPods(nodes []*corev1.Node, pods []*corev1.Pod) map[*corev1.
 	return layout
 }
 
-func DeepCopyLayoutForNodesPods(layout map[*corev1.Node]PodSlice) map[*corev1.Node]PodSlice {
-	newLayout := make(map[*corev1.Node]PodSlice)
+func DeepCopyLayoutForNodesPods(layout map[*corev1.Node][]*corev1.Pod) map[*corev1.Node][]*corev1.Pod {
+	newLayout := make(map[*corev1.Node][]*corev1.Pod)
 
 	for node, podSlice := range layout {
 		newNode := node.DeepCopy()
-		newLayout[newNode] = make(PodSlice, 0)
+		newLayout[newNode] = make([]*corev1.Pod, 0)
 		for _, pod := range podSlice {
 			newPod := pod.DeepCopy()
 			newLayout[newNode] = append(newLayout[newNode], newPod)
@@ -80,6 +78,18 @@ func DeepCopyLayoutForNodesPods(layout map[*corev1.Node]PodSlice) map[*corev1.No
 	}
 
 	return newLayout
+}
+
+func DeleteElemInStringSlice(elem string, s []string) []string {
+	for i := 0; i < len(s); {
+		if s[i] == elem {
+			s = append(s[:i], s[i+1:]...)
+		} else {
+			i++
+		}
+	}
+
+	return s
 }
 
 func GetPodsTotalRequestsExcludeStaticAndDaemonPod(pods []*corev1.Pod) map[corev1.ResourceName]resource.Quantity {
@@ -149,7 +159,7 @@ func SetNoScheduleTaintOnNode(node *corev1.Node) {
 	node.Spec.Taints = append(node.Spec.Taints, unschedulableTaint)
 }
 
-func GetClusterArgsForSimulation(layout map[*corev1.Node]PodSlice) simulator.ResourceTypes {
+func GetClusterArgsForSimulation(layout map[*corev1.Node][]*corev1.Pod) simulator.ResourceTypes {
 	var nodes []*corev1.Node
 	var pods []*corev1.Pod
 	for node, podsOnNode := range layout {
@@ -163,8 +173,8 @@ func GetClusterArgsForSimulation(layout map[*corev1.Node]PodSlice) simulator.Res
 	}
 }
 
-func UpdateLayoutByResult(nodeStatus []simulator.NodeStatus) map[*corev1.Node]PodSlice {
-	newLayout := make(map[*corev1.Node]PodSlice)
+func UpdateLayoutByResult(nodeStatus []simulator.NodeStatus) map[*corev1.Node][]*corev1.Pod {
+	newLayout := make(map[*corev1.Node][]*corev1.Pod)
 	for _, status := range nodeStatus {
 		newLayout[status.Node] = status.Pods
 	}
