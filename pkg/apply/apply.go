@@ -364,8 +364,8 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 
 			// GPU
 			if containGpu(extendedResources) {
-				req, limit := resourcehelper.PodRequestsAndLimits(pod)
-				gpuMemReq, _ := req[gpushareutils.ResourceName], limit[gpushareutils.ResourceName]
+				gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodResource(pod)
+				gpuMemReq := resource.NewQuantity(int64(gpuMem*gpuNum), resource.BinarySI)
 				fractionGpuMemReq := float64(gpuMemReq.Value()) / float64(allocatable.Name(gpushareutils.ResourceName, resource.BinarySI).Value()) * 100
 				data = append(data, fmt.Sprintf("%s(%d%%)", gpuMemReq.String(), int64(fractionGpuMemReq)))
 			}
@@ -429,7 +429,14 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 			fmt.Sprintf("%s(%d%%)", nodeMemoryReq.String(), int64(nodeMemoryReqFraction)),
 		}
 		if containGpu(extendedResources) {
-			nodeGpuMemReq := reqs[gpushareutils.ResourceName]
+			nodeGpuMemReq := resource.NewQuantity(0, resource.BinarySI)
+			for _, pod := range allPods {
+				if pod.Spec.NodeName == node.Name {
+					gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodResource(&pod)
+					gpuMemReq := resource.NewQuantity(int64(gpuMem*gpuNum), resource.BinarySI)
+					nodeGpuMemReq.Add(*gpuMemReq)
+				}
+			}
 			nodeGpuMemFraction := float64(nodeGpuMemReq.Value()) / float64(allocatable.Name(gpushareutils.ResourceName, resource.BinarySI).Value()) * 100
 			data = append(data, []string{
 				allocatable.Name(gpushareutils.ResourceName, resource.BinarySI).String(),
@@ -447,7 +454,7 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 	nodeTable.Render() // Send output
 	fmt.Println()
 
-	// Step 3: report node storage info
+	// Step 3: report extended resource info (e.g., node storage, GPU)
 	if len(extendedResources) != 0 {
 		fmt.Println("Extended Resource Info")
 		if containLocalStorage(extendedResources) {
@@ -511,15 +518,23 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 			for _, status := range nodeStatuses {
 				node := status.Node
 				podList = append(podList, status.Pods...)
-				reqs, _ := utils.GetPodsTotalRequestsAndLimitsByNodeName(allPods, node.Name)
 				if nodeGpuInfoStr, exist := node.Annotations[simontype.AnnoNodeGpuShare]; exist {
 					var nodeGpuInfo gpusharecache.NodeGpuInfo
 					if err := ffjson.Unmarshal([]byte(nodeGpuInfoStr), &nodeGpuInfo); err != nil {
 						klog.Errorf("failed to unmarshal storage information of node(%s: %v", node.Name, err)
 						continue
 					}
-					nodeGpuMemReq := reqs[gpushareutils.ResourceName]
-					nodeOutputLine := []string{fmt.Sprintf("%s (%s)", node.Name, nodeGpuInfo.GpuModel), fmt.Sprintf("%d GPUs", nodeGpuInfo.GpuCount), fmt.Sprintf("%s/%s", nodeGpuMemReq.String(), nodeGpuInfo.GpuTotalMemory.String()), fmt.Sprintf("%d Pods", nodeGpuInfo.NumPods)}
+					nodeGpuMemReq := resource.NewQuantity(0, resource.BinarySI)
+					for _, pod := range allPods {
+						if pod.Spec.NodeName == node.Name {
+							gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodResource(&pod)
+							gpuMemReq := resource.NewQuantity(int64(gpuMem*gpuNum), resource.BinarySI)
+							nodeGpuMemReq.Add(*gpuMemReq)
+						}
+					}
+					gpuReqCapFraction := float64(nodeGpuMemReq.Value())/float64(nodeGpuInfo.GpuTotalMemory.Value()) * 100
+					gpuReqCapStr := fmt.Sprintf("%s/%s(%d%%)", nodeGpuMemReq.String(), nodeGpuInfo.GpuTotalMemory.String(), int(gpuReqCapFraction))
+					nodeOutputLine := []string{fmt.Sprintf("%s (%s)", node.Name, nodeGpuInfo.GpuModel), fmt.Sprintf("%d GPUs", nodeGpuInfo.GpuCount), gpuReqCapStr, fmt.Sprintf("%d Pods", nodeGpuInfo.NumPods)}
 					nodeGpuTable.Append(nodeOutputLine)
 
 					for idx := 0; idx < len(nodeGpuInfo.DevsBrief); idx += 1 {
@@ -529,7 +544,9 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 								continue // either no GPU or not allocated
 							}
 							devUsedGpuMem := deviceInfoBrief.GpuUsedMemory
-							nodeOutputLineDev := []string{fmt.Sprintf("%s (%s)", node.Name, nodeGpuInfo.GpuModel), fmt.Sprintf("%d", idx), fmt.Sprintf("%s/%s", devUsedGpuMem.String(), devTotalGpuMem.String()), fmt.Sprintf("%s", deviceInfoBrief.PodList)}
+							devReqCapFraction := float64(devUsedGpuMem.Value())/float64(devTotalGpuMem.Value()) * 100
+							devReqCapStr :=  fmt.Sprintf("%s/%s(%d%%)", devUsedGpuMem.String(), devTotalGpuMem.String(), int(devReqCapFraction))
+							nodeOutputLineDev := []string{fmt.Sprintf("%s (%s)", node.Name, nodeGpuInfo.GpuModel), fmt.Sprintf("%d", idx), devReqCapStr, fmt.Sprintf("%s", deviceInfoBrief.PodList)}
 							nodeGpuTable.Append(nodeOutputLineDev)
 						}
 					}
@@ -542,13 +559,18 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 
 			fmt.Println("\nPod -> Node Map")
 			podGpuTable := tablewriter.NewWriter(os.Stdout)
-			podGpuTable.SetHeader([]string{"Pod", "CPU Req", "Mem Req", "GPU Req", "Host Node"})
+			podGpuTable.SetHeader([]string{"Pod", "CPU Req", "Mem Req", "GPU Req", "Host Node", "GPU IDX"})
 			sort.Slice(podList, func(i, j int) bool { return podList[i].Name < podList[j].Name })
 			for _, pod := range podList {
 				req, limit := resourcehelper.PodRequestsAndLimits(pod)
-				gpuMemReq, _ := req[gpushareutils.ResourceName], limit[gpushareutils.ResourceName]
+				gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodResource(pod)
+				gpuMemReq := resource.NewQuantity(int64(gpuMem*gpuNum), resource.BinarySI)
 				cpuReq, _, memoryReq, _ := req[corev1.ResourceCPU], limit[corev1.ResourceCPU], req[corev1.ResourceMemory], limit[corev1.ResourceMemory]
-				podOutputLine := []string{pod.Name, cpuReq.String(), memoryReq.String(), gpuMemReq.String(), pod.Spec.NodeName}
+				var gpuIndex string
+				if i, ok := pod.ObjectMeta.Annotations[gpushareutils.EnvResourceIndex]; ok {
+					gpuIndex = i
+				}
+				podOutputLine := []string{pod.Name, cpuReq.String(), memoryReq.String(), gpuMemReq.String(), pod.Spec.NodeName, gpuIndex}
 				podGpuTable.Append(podOutputLine)
 			}
 			podGpuTable.SetRowLine(true)

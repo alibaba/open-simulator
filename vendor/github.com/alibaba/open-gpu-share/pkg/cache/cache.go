@@ -49,7 +49,7 @@ func (cache *SchedulerCache) GetGpuNodeinfos() []*GpuNodeInfo {
 func (cache *SchedulerCache) BuildCacheFromPodList(podList []*v1.Pod) error {
 	//log.Println("debug: begin to build scheduler cache")
 	for _, pod := range podList {
-		if utils.GetGPUMemoryFromPodAnnotation(pod) <= uint(0) {
+		if utils.GetGpuMemoryFromPodAnnotation(pod) <= int64(0) {
 			continue
 		}
 
@@ -94,7 +94,7 @@ func (cache *SchedulerCache) AddOrUpdatePod(pod *v1.Pod) error {
 		// put it into known pod
 		cache.rememberPod(pod.UID, podCopy)
 	} else {
-		//log.Printf("debug: pod %s in ns %s's gpu id is %d, it's illegal, skip", pod.Name, pod.Namespace, utils.GetGPUIDFromAnnotation(pod))
+		//log.Printf("debug: pod %s in ns %s's gpu id is %d, it's illegal, skip", pod.Name, pod.Namespace, utils.GetGpuIdFromAnnotation(pod))
 	}
 
 	return nil
@@ -130,14 +130,14 @@ func (cache *SchedulerCache) GetGpuNodeInfo(name string) (*GpuNodeInfo, error) {
 		cache.nodes[name] = n
 	} else {
 		// if the existing node turn from non gpushare to gpushare
-		// if (utils.GetTotalGPUMemory(n.node) <= 0 && utils.GetTotalGPUMemory(node) > 0) ||
-		// 	(utils.GetGPUCountInNode(n.node) <= 0 && utils.GetGPUCountInNode(node) > 0) ||
+		// if (utils.GetTotalGpuMemory(n.node) <= 0 && utils.GetTotalGpuMemory(node) > 0) ||
+		// 	(utils.GetGpuCountInNode(n.node) <= 0 && utils.GetGpuCountInNode(node) > 0) ||
 		// 	// if the existing node turn from gpushare to non gpushare
-		// 	(utils.GetTotalGPUMemory(n.node) > 0 && utils.GetTotalGPUMemory(node) <= 0) ||
-		// 	(utils.GetGPUCountInNode(n.node) > 0 && utils.GetGPUCountInNode(node) <= 0) {
+		// 	(utils.GetTotalGpuMemory(n.node) > 0 && utils.GetTotalGpuMemory(node) <= 0) ||
+		// 	(utils.GetGpuCountInNode(n.node) > 0 && utils.GetGpuCountInNode(node) <= 0) {
 		if len(cache.nodes[name].devs) == 0 ||
-			utils.GetTotalGPUMemory(n.node) <= 0 ||
-			utils.GetGPUCountInNode(n.node) <= 0 {
+			utils.GetTotalGpuMemory(n.node) <= 0 ||
+			utils.GetGpuCountInNode(n.node) <= 0 {
 			//log.Printf("info: GetGpuNodeInfo() need update node %s", name)
 
 			// fix the scenario that the number of devices changes from 0 to an positive number

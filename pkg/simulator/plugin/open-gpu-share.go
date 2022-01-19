@@ -49,7 +49,7 @@ func (plugin *GpuSharePlugin) Name() string {
 // Filter filters out non-allocatable nodes
 func (plugin *GpuSharePlugin) Filter(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
 	// check if the pod requires GPU resources
-	podGpuMem := gpushareutils.GetGPUMemoryFromPodResource(pod)
+	podGpuMem := gpushareutils.GetGpuMemoryFromPodResource(pod)
 	if podGpuMem <= 0 {
 		// the node is schedulable if pod does not require GPU resources
 		//klog.Infof("[Filter] Pod: %v/%v, podGpuMem <= 0: %v", pod.GetNamespace(), pod.GetName(), podGpuMem)
@@ -59,7 +59,7 @@ func (plugin *GpuSharePlugin) Filter(ctx context.Context, state *framework.Cycle
 
 	// check if the node have GPU resources
 	node := nodeInfo.Node()
-	nodeGpuMem := gpushareutils.GetTotalGPUMemory(node)
+	nodeGpuMem := gpushareutils.GetTotalGpuMemory(node)
 	if nodeGpuMem < podGpuMem {
 		//klog.Infof("[Filter] Unschedulable, Node: %v, nodeGpuMem: %v", node.GetName(), nodeGpuMem)
 		return framework.NewStatus(framework.Unschedulable, "Node:"+nodeInfo.Node().Name)
@@ -71,7 +71,7 @@ func (plugin *GpuSharePlugin) Filter(ctx context.Context, state *framework.Cycle
 	if err != nil {
 		return framework.NewStatus(framework.Unschedulable, "Node:"+nodeInfo.Node().Name)
 	}
-	_, found := gpuNodeInfo.AllocateGPUID(pod)
+	_, found := gpuNodeInfo.AllocateGpuId(pod)
 	if !found {
 		return framework.NewStatus(framework.Unschedulable, "Node:"+nodeInfo.Node().Name)
 	}
@@ -144,7 +144,7 @@ func (plugin *GpuSharePlugin) NormalizeScore(ctx context.Context, state *framewo
 // Reserve Plugin
 // Reserve updates the GPU resource of the given node, according to the pod's request.
 func (plugin *GpuSharePlugin) Reserve(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) *framework.Status {
-	if gpushareutils.GetGPUMemoryFromPodResource(pod) <= 0 {
+	if gpushareutils.GetGpuMemoryFromPodResource(pod) <= 0 {
 		return framework.NewStatus(framework.Success) // non-GPU pods are skipped
 	}
 	plugin.Lock()
@@ -203,7 +203,7 @@ func (plugin *GpuSharePlugin) Unreserve(ctx context.Context, state *framework.Cy
 // Bind Plugin
 // Bind updates the GPU resources of the pod.
 func (plugin *GpuSharePlugin) Bind(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) *framework.Status {
-	if gpushareutils.GetGPUMemoryFromPodResource(pod) <= 0 {
+	if gpushareutils.GetGpuMemoryFromPodResource(pod) <= 0 {
 		return framework.NewStatus(framework.Skip) // non-GPU pods are skipped
 	}
 	plugin.Lock()
@@ -253,13 +253,14 @@ func (plugin *GpuSharePlugin) MakePodCopyReadyForBindUpdate(pod *corev1.Pod, nod
 		return nil, err
 	}
 
-	devId, found := gpuNodeInfo.AllocateGPUID(pod)
+	devId, found := gpuNodeInfo.AllocateGpuId(pod)
 	if !found {
 		err := fmt.Errorf("Cannot find a GPU to allocate pod %s at ns %s", pod.Name, pod.Namespace)
 		return nil, err
 	}
 
-	podCopy := gpushareutils.GetUpdatedPodAnnotationSpec(pod, devId, gpuNodeInfo.GetTotalGPUMemory()/gpuNodeInfo.GetGPUCount())
+	totalGpuMemByDev := gpuNodeInfo.GetTotalGpuMemory() / int64(gpuNodeInfo.GetGpuCount())
+	podCopy := gpushareutils.GetUpdatedPodAnnotationSpec(pod, devId, totalGpuMemByDev)
 	podCopy.Spec.NodeName = nodeName
 	podCopy.Status.Phase = corev1.PodRunning
 	return podCopy, nil
