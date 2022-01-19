@@ -15,7 +15,7 @@ type DeviceInfo struct {
 	idx         int
 	podMap      map[types.UID]*v1.Pod
 	model       string
-	totalGPUMem uint
+	totalGpuMem int64
 	rwmu        *sync.RWMutex
 }
 
@@ -27,22 +27,22 @@ func (d *DeviceInfo) GetPods() []*v1.Pod {
 	return pods
 }
 
-func newDeviceInfo(index int, totalGPUMem uint, cardModel string) *DeviceInfo {
+func newDeviceInfo(index int, totalGpuMem int64, cardModel string) *DeviceInfo {
 	return &DeviceInfo{
 		idx:         index,
-		totalGPUMem: totalGPUMem,
+		totalGpuMem: totalGpuMem,
 		podMap:      map[types.UID]*v1.Pod{},
 		model:       cardModel,
 		rwmu:        new(sync.RWMutex),
 	}
 }
 
-func (d *DeviceInfo) GetTotalGPUMemory() uint {
-	return d.totalGPUMem
+func (d *DeviceInfo) GetTotalGpuMemory() int64 {
+	return d.totalGpuMem
 }
 
-func (d *DeviceInfo) GetUsedGPUMemory() (gpuMem uint) {
-	//log.Printf("debug: GetUsedGPUMemory() podMap %v, and its address is %p", d.podMap, d)
+func (d *DeviceInfo) GetUsedGpuMemory() (gpuMem int64) {
+	//log.Printf("debug: GetUsedGpuMemory() podMap %v, and its address is %p", d.podMap, d)
 	d.rwmu.RLock()
 	defer d.rwmu.RUnlock()
 	for _, pod := range d.podMap {
@@ -50,8 +50,17 @@ func (d *DeviceInfo) GetUsedGPUMemory() (gpuMem uint) {
 			log.Printf("debug: skip the pod %s in ns %s due to its status is %s", pod.Name, pod.Namespace, pod.Status.Phase)
 			continue
 		}
-		// gpuMem += utils.GetGPUMemoryFromPodEnv(pod)
-		gpuMem += utils.GetGPUMemoryFromPodAnnotation(pod)
+
+		gpuMemPerGpu := utils.GetGpuMemoryFromPodAnnotation(pod)
+		idl, err := utils.GetGpuIdListFromAnnotation(pod)
+		if err != nil {
+			continue
+		}
+		for _, idx := range idl {
+			if idx == d.idx {
+				gpuMem += gpuMemPerGpu
+			}
+		}
 	}
 	return gpuMem
 }
@@ -85,7 +94,7 @@ func (d *DeviceInfo) ExportDeviceInfoBrief() *DeviceInfoBrief {
 	for _, pod := range d.podMap {
 		podList = append(podList, fmt.Sprintf("%s:%s", pod.Namespace, pod.Name))
 	}
-	gpuUsedMem, _ := resource.ParseQuantity(fmt.Sprintf("%dMi", d.GetUsedGPUMemory()/(1024*1024)))
-	gpuTotalMem, _ := resource.ParseQuantity(fmt.Sprintf("%dMi", d.totalGPUMem/(1024*1024)))
+	gpuUsedMem, _ := resource.ParseQuantity(fmt.Sprintf("%dMi", d.GetUsedGpuMemory()/(1024*1024)))
+	gpuTotalMem, _ := resource.ParseQuantity(fmt.Sprintf("%dMi", d.totalGpuMem/(1024*1024)))
 	return &DeviceInfoBrief{d.idx, d.model, podList, gpuTotalMem, gpuUsedMem}
 }

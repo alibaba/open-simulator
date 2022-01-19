@@ -21,10 +21,12 @@ spec:
         resources:
           limits:
             alibabacloud.com/gpu-mem: 1024Mi
+            alibabacloud.com/gpu-count: 1
             cpu: 4
             memory: 9216Mi
           requests:
             alibabacloud.com/gpu-mem: 1024Mi
+            alibabacloud.com/gpu-count: 1
             cpu: 4
             memory: 9216Mi
       hostNetwork: true
