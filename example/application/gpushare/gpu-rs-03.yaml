@@ -1,12 +1,15 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: ReplicaSet
 metadata:
   labels:
-    app: gpu-deploy-03
-  name: gpu-deploy-03
+    app: gpu-rs-03
+  name: gpu-rs-03
   namespace: pai-gpu
+  annotations:
+    alibabacloud.com/gpu-mem: 10240Mi
+    alibabacloud.com/gpu-count: "1"
 spec:
-  replicas: 2
+  replicas: 6
   selector:
     matchLabels:
       app: gpu-deploy-03
@@ -20,17 +23,9 @@ spec:
         name: main
         resources:
           limits:
-            alibabacloud.com/gpu-mem: 10240Mi
-            alibabacloud.com/gpu-count: 2
             cpu: 8
             memory: 18432Mi
           requests:
-            alibabacloud.com/gpu-mem: 10240Mi
-            alibabacloud.com/gpu-count: 2
             cpu: 8
             memory: 18432Mi
       hostNetwork: true
-      tolerations:
-      - effect: NoSchedule
-        key: node-role.kubernetes.io/master
-        operator: Exists

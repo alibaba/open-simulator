@@ -1,14 +1,9 @@
 package utils
 
 const (
-	ResourceName = "alibabacloud.com/gpu-mem" // GPU Memory request for each GPU
-	CountName    = "alibabacloud.com/gpu-count"
-	ModelName    = "alibabacloud.com/gpu-card-model"
-
-	EnvNvGpu              = "NVIDIA_VISIBLE_DEVICES"
-	EnvResourceIndex      = "ALIBABACLOUD_COM_GPU_MEM_IDX"
-	EnvResourceByPod      = "ALIBABACLOUD_COM_GPU_MEM_POD"
-	EnvResourceByDev      = "ALIBABACLOUD_COM_GPU_MEM_DEV"
-	EnvAssignedFlag       = "ALIBABACLOUD_COM_GPU_MEM_ASSIGNED"
-	EnvResourceAssumeTime = "ALIBABACLOUD_COM_GPU_MEM_ASSUME_TIME"
+	ResourceName = "alibabacloud.com/gpu-mem"        // Pod's GPU Memory request for each GPU
+	CountName    = "alibabacloud.com/gpu-count"      // Pod's GPU number request => Total GPU Memory == Resource * Count
+	DeviceIndex  = "alibabacloud.com/gpu-index"      // Exists when the pod are assigned/predefined to a GPU device
+	AssumeTime   = "alibabacloud.com/assume-time"    // To retrieve the scheduling latency
+	ModelName    = "alibabacloud.com/gpu-card-model" // node annotation
 )

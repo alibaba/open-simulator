@@ -3,7 +3,6 @@ package cache
 import (
 	"context"
 	"fmt"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"log"
 	"strconv"
 	"strings"
@@ -11,8 +10,8 @@ import (
 
 	"github.com/alibaba/open-gpu-share/pkg/utils"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -148,23 +147,22 @@ func (n *GpuNodeInfo) Assume(pod *v1.Pod) (allocatable bool) {
 	defer n.rwmu.RUnlock()
 
 	availableGpus := n.getAvailableGpus()
-	reqGpuMem := int64(utils.GetGpuMemoryFromPodResource(pod))
+	reqGpuMem, reqGpuNum := utils.GetGpuMemoryAndCountFromPodAnnotation(pod)
 	//log.Printf("debug: AvailableGPUs: %v in node %s", availableGpus, n.name)
 
 	if len(availableGpus) > 0 {
 		for devId := 0; devId < len(n.devs); devId++ {
-			availableGpu, ok := availableGpus[devId]
-			if ok {
+			if availableGpu, ok := availableGpus[devId]; ok {
 				if availableGpu >= reqGpuMem {
-					allocatable = true
-					break
+					if reqGpuNum -= 1; reqGpuNum <= 0 {
+						allocatable = true
+						break
+					}
 				}
 			}
 		}
 	}
-
 	return allocatable
-
 }
 
 func (n *GpuNodeInfo) Allocate(clientset *kubernetes.Clientset, pod *v1.Pod) (err error) {
@@ -175,12 +173,7 @@ func (n *GpuNodeInfo) Allocate(clientset *kubernetes.Clientset, pod *v1.Pod) (er
 	// 1. Update the pod spec
 	devId, found := n.AllocateGpuId(pod)
 	if found {
-		//log.Printf("info: Allocate() 1. Allocate GPU ID %d to pod %s in ns %s.----", devId, pod.Name, pod.Namespace)
-		patchedAnnotationBytes, err := utils.PatchPodAnnotationSpec(pod, devId, n.GetTotalGpuMemory()/int64(n.GetGpuCount()))
-		if err != nil {
-			return fmt.Errorf("failed to generate patched annotations,reason: %v", err)
-		}
-		newPod, err = clientset.CoreV1().Pods(pod.Namespace).Patch(context.TODO(), pod.Name, types.StrategicMergePatchType, patchedAnnotationBytes, metav1.PatchOptions{})
+		newPod = utils.GetUpdatedPodAnnotationSpec(pod, devId)
 		if err != nil {
 			// the object has been modified; please apply your changes to the latest version and try again
 			if err.Error() == OptimisticLockErrorMsg {
@@ -189,7 +182,7 @@ func (n *GpuNodeInfo) Allocate(clientset *kubernetes.Clientset, pod *v1.Pod) (er
 				if err != nil {
 					return err
 				}
-				newPod, err = clientset.CoreV1().Pods(pod.Namespace).Patch(context.TODO(), pod.Name, types.StrategicMergePatchType, patchedAnnotationBytes, metav1.PatchOptions{})
+				newPod = utils.GetUpdatedPodAnnotationSpec(pod, devId)
 				if err != nil {
 					return err
 				}
@@ -241,7 +234,7 @@ func (n *GpuNodeInfo) AllocateGpuId(pod *v1.Pod) (candDevId string, found bool) 
 	candDevId = ""
 	// Assuming one Pod has only 1 GPU container; if not so, we let the containers share the same GPU memory spec, i.e.,
 	// Resources.Limits[ResourceName] is the GPU mem spec for each GPU for all containers.
-	reqGpuMem, reqGpuNum := utils.GetGpuMemoryAndCountFromPodResource(pod) // reqGpuMem * reqGpuNum = totalGpuMemReq
+	reqGpuMem, reqGpuNum := utils.GetGpuMemoryAndCountFromPodAnnotation(pod) // reqGpuMem * reqGpuNum = totalGpuMemReq
 	if reqGpuMem <= 0 || reqGpuNum <= 0 {
 		return candDevId, found
 	}
@@ -255,7 +248,7 @@ func (n *GpuNodeInfo) AllocateGpuId(pod *v1.Pod) (candDevId string, found bool) 
 		if idl, err := utils.GpuIdStrToIntList(id); err == nil && len(idl) > 0 { // just to validate id; not return idl.
 			return id, true
 		} else {
-			log.Printf("warn: pod (%s) %s has invalid GPU ID in Annotation %s: %s", pod.Namespace, pod.Name, utils.EnvResourceIndex, id)
+			log.Printf("warn: pod (%s) %s has invalid GPU ID in Annotation %s: %s", pod.Namespace, pod.Name, utils.DeviceIndex, id)
 		}
 	}
 
@@ -380,6 +373,7 @@ func (n *GpuNodeInfo) getUnhealthyGpus() (unhealthyGpus map[int]bool) {
 type NodeGpuInfo struct {
 	DevsBrief      map[int]*DeviceInfoBrief
 	GpuCount       int
+	GpuAllocatable int
 	GpuModel       string
 	GpuTotalMemory resource.Quantity
 	NumPods        int
@@ -387,12 +381,16 @@ type NodeGpuInfo struct {
 
 func (n *GpuNodeInfo) ExportGpuNodeInfoAsNodeGpuInfo() *NodeGpuInfo {
 	var numPods int
+	gpuAllocatable := n.gpuCount
 	devsBrief := map[int]*DeviceInfoBrief{}
 	for idx, d := range n.devs {
 		dib := d.ExportDeviceInfoBrief()
+		if dib.GpuUsedMemory.Value() > 0 {
+			gpuAllocatable -= 1
+		}
 		devsBrief[idx] = dib
 		numPods += len(dib.PodList)
 	}
 	gpuTotalMem, _ := resource.ParseQuantity(fmt.Sprintf("%dMi", n.gpuTotalMemory/(1024*1024)))
-	return &NodeGpuInfo{devsBrief, n.gpuCount, n.model, gpuTotalMem, numPods}
+	return &NodeGpuInfo{devsBrief, n.gpuCount, gpuAllocatable, n.model, gpuTotalMem, numPods}
 }

@@ -364,7 +364,7 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 
 			// GPU
 			if containGpu(extendedResources) {
-				gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodResource(pod)
+				gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodAnnotation(pod)
 				gpuMemReq := resource.NewQuantity(int64(gpuMem*gpuNum), resource.BinarySI)
 				fractionGpuMemReq := float64(gpuMemReq.Value()) / float64(allocatable.Name(gpushareutils.ResourceName, resource.BinarySI).Value()) * 100
 				data = append(data, fmt.Sprintf("%s(%d%%)", gpuMemReq.String(), int64(fractionGpuMemReq)))
@@ -432,7 +432,7 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 			nodeGpuMemReq := resource.NewQuantity(0, resource.BinarySI)
 			for _, pod := range allPods {
 				if pod.Spec.NodeName == node.Name {
-					gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodResource(&pod)
+					gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodAnnotation(&pod)
 					gpuMemReq := resource.NewQuantity(int64(gpuMem*gpuNum), resource.BinarySI)
 					nodeGpuMemReq.Add(*gpuMemReq)
 				}
@@ -527,7 +527,7 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 					nodeGpuMemReq := resource.NewQuantity(0, resource.BinarySI)
 					for _, pod := range allPods {
 						if pod.Spec.NodeName == node.Name {
-							gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodResource(&pod)
+							gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodAnnotation(&pod)
 							gpuMemReq := resource.NewQuantity(int64(gpuMem*gpuNum), resource.BinarySI)
 							nodeGpuMemReq.Add(*gpuMemReq)
 						}
@@ -563,13 +563,10 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 			sort.Slice(podList, func(i, j int) bool { return podList[i].Name < podList[j].Name })
 			for _, pod := range podList {
 				req, limit := resourcehelper.PodRequestsAndLimits(pod)
-				gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodResource(pod)
+				gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodAnnotation(pod)
 				gpuMemReq := resource.NewQuantity(int64(gpuMem*gpuNum), resource.BinarySI)
 				cpuReq, _, memoryReq, _ := req[corev1.ResourceCPU], limit[corev1.ResourceCPU], req[corev1.ResourceMemory], limit[corev1.ResourceMemory]
-				var gpuIndex string
-				if i, ok := pod.ObjectMeta.Annotations[gpushareutils.EnvResourceIndex]; ok {
-					gpuIndex = i
-				}
+				gpuIndex := gpushareutils.GetGpuIdFromAnnotation(pod)
 				podOutputLine := []string{pod.Name, cpuReq.String(), memoryReq.String(), gpuMemReq.String(), pod.Spec.NodeName, gpuIndex}
 				podGpuTable.Append(podOutputLine)
 			}
