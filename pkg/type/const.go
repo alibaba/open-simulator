@@ -23,7 +23,6 @@ const (
 	AnnoNodeLocalStorage  = "simon/node-local-storage"
 	AnnoPodLocalStorage   = "simon/pod-local-storage"
 	AnnoNodeGpuShare      = "simon/node-gpu-share"
-	AnnoPodGpuShare       = "simon/pod-gpu-share"
 
 	LabelNewNode = "simon/new-node"
 	LabelAppName = "simon/app-name"

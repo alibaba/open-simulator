@@ -226,7 +226,6 @@ func GetAndSetSchedulerConfig(schedulerConfig string) (*config.CompletedConfig, 
 	if kcfg.Profiles[0].Plugins == nil {
 		kcfg.Profiles[0].Plugins = &kubeschedulerconfig.Plugins{}
 	}
-
 	kcfg.Profiles[0].Plugins.Score = &kubeschedulerconfig.PluginSet{
 		Enabled: []kubeschedulerconfig.Plugin{
 			{

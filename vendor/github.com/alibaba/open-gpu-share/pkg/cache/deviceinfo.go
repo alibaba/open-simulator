@@ -2,12 +2,12 @@ package cache
 
 import (
 	"fmt"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"log"
 	"sync"
 
 	"github.com/alibaba/open-gpu-share/pkg/utils"
 	"k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 )
 

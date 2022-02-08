@@ -4,23 +4,23 @@ metadata:
   labels:
     beta.kubernetes.io/arch: amd64
     beta.kubernetes.io/os: linux
-    ip: 11.14.218.239
     kubernetes.io/arch: amd64
-    kubernetes.io/hostname: paib-node-30
+    kubernetes.io/hostname: pai-node-01
     kubernetes.io/os: linux
     node-role.kubernetes.io/master: ''
     alibabacloud.com/gpu-card-model: V100
-  name: paib-node-30
+    node-ip: 192.168.0.101
+  name: pai-node-01
 status:
   allocatable:
-    alibabacloud.com/gpu-count: '2'
-    alibabacloud.com/gpu-mem: 32560Mi
+    alibabacloud.com/gpu-count: '4'
+    alibabacloud.com/gpu-mem: 64640Mi
     cpu: 64
-    memory: 257266Mi
+    memory: 256000Mi
     pods: '110'
   capacity:
-    alibabacloud.com/gpu-count: '2'
-    alibabacloud.com/gpu-mem: 32560Mi
+    alibabacloud.com/gpu-count: '4'
+    alibabacloud.com/gpu-mem: 64640Mi
     cpu: 64
-    memory: 257266Mi
+    memory: 256000Mi
     pods: '110'

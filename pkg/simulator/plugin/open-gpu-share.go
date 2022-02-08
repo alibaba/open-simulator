@@ -49,7 +49,7 @@ func (plugin *GpuSharePlugin) Name() string {
 // Filter filters out non-allocatable nodes
 func (plugin *GpuSharePlugin) Filter(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
 	// check if the pod requires GPU resources
-	podGpuMem := gpushareutils.GetGpuMemoryFromPodResource(pod)
+	podGpuMem := gpushareutils.GetGpuMemoryFromPodAnnotation(pod)
 	if podGpuMem <= 0 {
 		// the node is schedulable if pod does not require GPU resources
 		//klog.Infof("[Filter] Pod: %v/%v, podGpuMem <= 0: %v", pod.GetNamespace(), pod.GetName(), podGpuMem)
@@ -144,7 +144,7 @@ func (plugin *GpuSharePlugin) NormalizeScore(ctx context.Context, state *framewo
 // Reserve Plugin
 // Reserve updates the GPU resource of the given node, according to the pod's request.
 func (plugin *GpuSharePlugin) Reserve(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) *framework.Status {
-	if gpushareutils.GetGpuMemoryFromPodResource(pod) <= 0 {
+	if gpushareutils.GetGpuMemoryFromPodAnnotation(pod) <= 0 {
 		return framework.NewStatus(framework.Success) // non-GPU pods are skipped
 	}
 	plugin.Lock()
@@ -169,6 +169,14 @@ func (plugin *GpuSharePlugin) Reserve(ctx context.Context, state *framework.Cycl
 	} else {
 		metav1.SetMetaDataAnnotation(&node.ObjectMeta, simontype.AnnoNodeGpuShare, string(data))
 	}
+
+	infoValue := int64(nodeGpuInfo.GpuAllocatable)
+	allocValue := node.Status.Allocatable[gpushareutils.CountName]
+	if allocValue.Value() != infoValue {
+		//klog.Infof("node %s: number of full GPU allocatable updated: %s -> %d", node.Name, allocValue.String(), infoValue)
+		allocValue.Set(infoValue)
+	}
+
 	if _, err := plugin.fakeclient.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{}); err != nil {
 		return framework.NewStatus(framework.Error, err.Error())
 	}
@@ -194,6 +202,14 @@ func (plugin *GpuSharePlugin) Unreserve(ctx context.Context, state *framework.Cy
 	} else {
 		metav1.SetMetaDataAnnotation(&node.ObjectMeta, simontype.AnnoNodeGpuShare, string(data))
 	}
+
+	infoValue := int64(nodeGpuInfo.GpuAllocatable)
+	allocValue := node.Status.Allocatable[gpushareutils.CountName]
+	if allocValue.Value() != infoValue {
+		//klog.Infof("node %s: number of full GPU allocatable updated: %s -> %d", node.Name, allocValue.String(), infoValue)
+		allocValue.Set(infoValue)
+	}
+
 	if _, err := plugin.fakeclient.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{}); err != nil {
 		klog.Errorf("Failed to Update node")
 		return
@@ -203,7 +219,7 @@ func (plugin *GpuSharePlugin) Unreserve(ctx context.Context, state *framework.Cy
 // Bind Plugin
 // Bind updates the GPU resources of the pod.
 func (plugin *GpuSharePlugin) Bind(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) *framework.Status {
-	if gpushareutils.GetGpuMemoryFromPodResource(pod) <= 0 {
+	if gpushareutils.GetGpuMemoryFromPodAnnotation(pod) <= 0 {
 		return framework.NewStatus(framework.Skip) // non-GPU pods are skipped
 	}
 	plugin.Lock()
@@ -259,8 +275,7 @@ func (plugin *GpuSharePlugin) MakePodCopyReadyForBindUpdate(pod *corev1.Pod, nod
 		return nil, err
 	}
 
-	totalGpuMemByDev := gpuNodeInfo.GetTotalGpuMemory() / int64(gpuNodeInfo.GetGpuCount())
-	podCopy := gpushareutils.GetUpdatedPodAnnotationSpec(pod, devId, totalGpuMemByDev)
+	podCopy := gpushareutils.GetUpdatedPodAnnotationSpec(pod, devId)
 	podCopy.Spec.NodeName = nodeName
 	podCopy.Status.Phase = corev1.PodRunning
 	return podCopy, nil
