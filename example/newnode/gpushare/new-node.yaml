@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Node
+metadata:
+  labels:
+    beta.kubernetes.io/arch: amd64
+    beta.kubernetes.io/os: linux
+    kubernetes.io/arch: amd64
+    kubernetes.io/hostname: minikube
+    kubernetes.io/os: linux
+    node-role.kubernetes.io/worker: ""
+    alibabacloud.com/gpu-card-model: P100
+  name: new-node
+status:
+  allocatable:
+    cpu: "32"
+    ephemeral-storage: 61255492Ki
+    hugepages-1Gi: "0"
+    hugepages-2Mi: "0"
+    memory: 64Gi
+    pods: "110"
+    alibabacloud.com/gpu-mem: 32Gi
+    alibabacloud.com/gpu-count: 2
+  capacity:
+    cpu: "4"
+    ephemeral-storage: 61255492Ki
+    hugepages-1Gi: "0"
+    hugepages-2Mi: "0"
+    memory: 8Gi
+    pods: "110"
+    alibabacloud.com/gpu-mem: 32Gi
+    alibabacloud.com/gpu-count: 2

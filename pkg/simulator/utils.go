@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	simontype "github.com/alibaba/open-simulator/pkg/type"
-	"github.com/alibaba/open-simulator/pkg/utils"
 	log "github.com/sirupsen/logrus"
 	apps "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -29,6 +27,9 @@ import (
 	kubeschedulerscheme "k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/profile"
+
+	simontype "github.com/alibaba/open-simulator/pkg/type"
+	"github.com/alibaba/open-simulator/pkg/utils"
 )
 
 // GenerateValidPodsFromAppResources generate valid pods from resources
@@ -225,7 +226,6 @@ func GetAndSetSchedulerConfig(schedulerConfig string) (*config.CompletedConfig, 
 	if kcfg.Profiles[0].Plugins == nil {
 		kcfg.Profiles[0].Plugins = &kubeschedulerconfig.Plugins{}
 	}
-
 	kcfg.Profiles[0].Plugins.Score = &kubeschedulerconfig.PluginSet{
 		Enabled: []kubeschedulerconfig.Plugin{
 			{
@@ -234,6 +234,9 @@ func GetAndSetSchedulerConfig(schedulerConfig string) (*config.CompletedConfig, 
 			{
 				Name: simontype.OpenLocalPluginName,
 			},
+			{
+				Name: simontype.OpenGpuSharePluginName,
+			},
 		},
 	}
 	kcfg.Profiles[0].Plugins.Filter = &kubeschedulerconfig.PluginSet{
@@ -241,12 +244,25 @@ func GetAndSetSchedulerConfig(schedulerConfig string) (*config.CompletedConfig, 
 			{
 				Name: simontype.OpenLocalPluginName,
 			},
+			{
+				Name: simontype.OpenGpuSharePluginName,
+			},
+		},
+	}
+	kcfg.Profiles[0].Plugins.Reserve = &kubeschedulerconfig.PluginSet{
+		Enabled: []kubeschedulerconfig.Plugin{
+			{
+				Name: simontype.OpenGpuSharePluginName,
+			},
 		},
 	}
 	kcfg.Profiles[0].Plugins.Bind = &kubeschedulerconfig.PluginSet{
 		Enabled: []kubeschedulerconfig.Plugin{
 			{
 				Name: simontype.OpenLocalPluginName,
+			},
+			{
+				Name: simontype.OpenGpuSharePluginName,
 			},
 			{
 				Name: simontype.SimonPluginName,

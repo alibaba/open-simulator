@@ -4,6 +4,7 @@ go 1.15
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.2
+	github.com/alibaba/open-gpu-share v0.1.0
 	github.com/alibaba/open-local v0.2.4-0.20211118031547-952eadbb4a8e
 	github.com/olekukonko/tablewriter v0.0.5
 	github.com/pquerna/ffjson v0.0.0-20190930134022-aa0246cd15f7
@@ -14,18 +15,19 @@ require (
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
 	golang.org/x/sys v0.0.0-20211025201205-69cdffdb9359 // indirect
 	helm.sh/helm/v3 v3.6.2
-	k8s.io/api v0.21.0
-	k8s.io/apimachinery v0.21.0
+	k8s.io/api v0.23.1
+	k8s.io/apimachinery v0.23.1
 	k8s.io/client-go v0.21.0
 	k8s.io/component-base v0.20.5
-	k8s.io/klog/v2 v2.9.0 // indirect
-	k8s.io/kube-scheduler v0.20.5
+	k8s.io/klog/v2 v2.9.0
+	k8s.io/kube-scheduler v0.23.1
 	k8s.io/kubectl v0.21.0
 	k8s.io/kubernetes v1.20.5
 	sigs.k8s.io/yaml v1.2.0
 )
 
 replace (
+	github.com/alibaba/open-gpu-share => github.com/qzweng/open-gpu-share v0.2.2
 	github.com/googleapis/gnostic => github.com/googleapis/gnostic v0.4.1
 	google.golang.org/grpc => google.golang.org/grpc v1.26.0
 	k8s.io/api => k8s.io/api v0.20.5

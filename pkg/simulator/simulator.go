@@ -6,10 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/alibaba/open-simulator/pkg/algo"
-	simonplugin "github.com/alibaba/open-simulator/pkg/simulator/plugin"
-	simontype "github.com/alibaba/open-simulator/pkg/type"
-	"github.com/alibaba/open-simulator/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -20,8 +16,13 @@ import (
 	"k8s.io/client-go/tools/cache"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 	"k8s.io/kubernetes/pkg/scheduler"
-	framework "k8s.io/kubernetes/pkg/scheduler/framework"
+	"k8s.io/kubernetes/pkg/scheduler/framework"
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
+
+	"github.com/alibaba/open-simulator/pkg/algo"
+	simonplugin "github.com/alibaba/open-simulator/pkg/simulator/plugin"
+	simontype "github.com/alibaba/open-simulator/pkg/type"
+	"github.com/alibaba/open-simulator/pkg/utils"
 )
 
 // Simulator is used to simulate a cluster and pods scheduling
@@ -130,6 +131,9 @@ func New(opts ...Option) (Interface, error) {
 		},
 		simontype.OpenLocalPluginName: func(configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
 			return simonplugin.NewLocalPlugin(fakeClient, storagev1Informers, configuration, f)
+		},
+		simontype.OpenGpuSharePluginName: func(configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
+			return simonplugin.NewGpuSharePlugin(fakeClient, configuration, f)
 		},
 	}
 	sim.scheduler, err = scheduler.New(
