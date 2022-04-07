@@ -1,0 +1,35 @@
+# This is an example .goreleaser.yml file with some sane defaults.
+# Make sure to check the documentation at http://goreleaser.com
+builds:
+  - env:
+      - CGO_ENABLED=0
+    main: ./cmd/main.go
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      # don't build arm for darwin and arm/arm64 for windows
+      - goos: windows
+        goarch: arm64
+      - goos: darwin
+        goarch: arm64
+    ldflags:
+      - -X "github.com/alibaba/open-simulator/cmd/version.VERSION={{ .Tag }}" -X "github.com/alibaba/open-simulator/cmd/version.COMMITID={{ .ShortCommit }}"
+archives:
+  - name_template: "{{ .ProjectName }}-{{ .Tag }}-{{ .Os }}-{{ .Arch }}"
+    wrap_in_directory: true
+    files:
+      - LICENSE
+      - example/*
+checksum:
+  name_template: 'CHECKSUM'
+release:
+  github:
+    owner: alibaba
+    name: open-simulator
+  draft: true
+  prerelease: auto
