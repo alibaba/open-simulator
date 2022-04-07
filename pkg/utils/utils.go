@@ -386,6 +386,9 @@ func NewDaemonPod(ds *appsv1.DaemonSet, nodeName string) (*corev1.Pod, error) {
 
 // NodeShouldRunPod determines whether a node should run a pod according to scheduling rules
 func NodeShouldRunPod(node *corev1.Node, pod *corev1.Pod) bool {
+	if node == nil {
+		return false
+	}
 	taints := node.Spec.Taints
 	fitsNodeName, fitsNodeAffinity, fitsTaints := daemon.Predicates(pod, node, taints)
 	if !fitsNodeName || !fitsNodeAffinity || !fitsTaints {
@@ -766,6 +769,9 @@ func GetNodeAllocatable(node *corev1.Node) (resource.Quantity, resource.Quantity
 }
 
 func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*appsv1.DaemonSet) (bool, error) {
+	if node == nil {
+		return false, nil
+	}
 	// CPU and Memory
 	totalResource := map[corev1.ResourceName]*resource.Quantity{
 		corev1.ResourceCPU:    resource.NewQuantity(0, resource.DecimalSI),
