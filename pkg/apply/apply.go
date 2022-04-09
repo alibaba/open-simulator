@@ -40,7 +40,7 @@ type Options struct {
 type Applier struct {
 	cluster           v1alpha1.Cluster
 	appList           []v1alpha1.AppInfo
-	newNode           string
+	newNodePath       string
 	schedulerConfig   string
 	useGreed          bool
 	interactive       bool
@@ -70,7 +70,7 @@ func NewApplier(opts Options) Interface {
 	applier := &Applier{
 		cluster:           simonCR.Spec.Cluster,
 		appList:           simonCR.Spec.AppList,
-		newNode:           simonCR.Spec.NewNode,
+		newNodePath:       simonCR.Spec.NewNode,
 		schedulerConfig:   opts.DefaultSchedulerConfigFile,
 		useGreed:          opts.UseGreed,
 		interactive:       opts.Interactive,
@@ -136,21 +136,20 @@ func (applier *Applier) Run() (err error) {
 	// Step 3: convert the path of the new node to be added into the kubernetes object
 	// only support temporarily one type of node at present
 	var nodeResource simulator.ResourceTypes
-	if content, err = utils.GetYamlContentFromDirectory(applier.newNode); err != nil {
-		return err
+	if applier.newNodePath != "" {
+		if content, err = utils.GetYamlContentFromDirectory(applier.newNodePath); err != nil {
+			return err
+		}
+		if nodeResource, err = simulator.GetObjectFromYamlContent(content); err != nil {
+			return err
+		}
+		simulator.MatchAndSetLocalStorageAnnotationOnNode(nodeResource.Nodes, applier.newNodePath)
 	}
-	if nodeResource, err = simulator.GetObjectFromYamlContent(content); err != nil {
-		return err
-	}
-	if len(nodeResource.Nodes) == 0 {
-		return fmt.Errorf("the new node directory(%s) has no nodes ", applier.newNode)
-	}
-	simulator.MatchAndSetLocalStorageAnnotationOnNode(nodeResource.Nodes, applier.newNode)
 
 	// confirm the list of applications that needed to be deployed in interactive mode
 	var selectedAppNameList []string
 	var selectedResourceList []simulator.AppResource
-	if applier.interactive {
+	if len(resourceList) != 0 && applier.interactive {
 		var multiQs = []*survey.Question{
 			{
 				Name: "APPs",
@@ -178,7 +177,10 @@ func (applier *Applier) Run() (err error) {
 	// If everything is ok, output the result. Otherwise we adjust the scale of cluster by adding node
 	success := false
 	// only support temporarily adding a type of node at present
-	newNode := nodeResource.Nodes[0]
+	var newNode *corev1.Node
+	if len(nodeResource.Nodes) != 0 {
+		newNode = nodeResource.Nodes[0]
+	}
 	var result *simulator.SimulateResult
 	for i := 0; i < simontype.MaxNumNewNode; i++ {
 		newClusterResource := clusterResource
@@ -195,6 +197,10 @@ func (applier *Applier) Run() (err error) {
 		if err != nil {
 			return err
 		}
+		// test
+		// for _, pod := range result.UnscheduledPods {
+		// 	fmt.Printf("Unscheduled pod %s/%s: %s\n", pod.Pod.Namespace, pod.Pod.Name, pod.Reason)
+		// }
 		if len(result.UnscheduledPods) == 0 {
 			if ok, reason, err := satisfyResourceSetting(result.NodeStatus); err != nil {
 				return err
@@ -268,8 +274,8 @@ func validate(applier *Applier) error {
 		}
 	}
 
-	if len(applier.newNode) != 0 {
-		if _, err := os.Stat(applier.newNode); err != nil {
+	if len(applier.newNodePath) != 0 {
+		if _, err := os.Stat(applier.newNodePath); err != nil {
 			return fmt.Errorf("invalid path of newNode: %v ", err)
 		}
 	}
@@ -284,20 +290,18 @@ func validate(applier *Applier) error {
 }
 
 func newFakeNodes(node *corev1.Node, nodeCount int) ([]*corev1.Node, error) {
-	if node == nil {
-		return nil, fmt.Errorf("node is nil ")
-	}
-
 	var nodes []*corev1.Node
-	// make fake nodes
-	for i := 0; i < nodeCount; i++ {
-		hostname := fmt.Sprintf("%s-%02d", simontype.NewNodeNamePrefix, i)
-		validNode, err := utils.MakeValidNodeByNode(node, hostname)
-		if err != nil {
-			return nil, err
+	if node != nil {
+		// make fake nodes
+		for i := 0; i < nodeCount; i++ {
+			hostname := fmt.Sprintf("%s-%02d", simontype.NewNodeNamePrefix, i)
+			validNode, err := utils.MakeValidNodeByNode(node, hostname)
+			if err != nil {
+				return nil, err
+			}
+			metav1.SetMetaDataLabel(&validNode.ObjectMeta, simontype.LabelNewNode, "")
+			nodes = append(nodes, validNode.DeepCopy())
 		}
-		metav1.SetMetaDataLabel(&validNode.ObjectMeta, simontype.LabelNewNode, "")
-		nodes = append(nodes, validNode.DeepCopy())
 	}
 	return nodes, nil
 }
@@ -532,7 +536,7 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 							nodeGpuMemReq.Add(*gpuMemReq)
 						}
 					}
-					gpuReqCapFraction := float64(nodeGpuMemReq.Value())/float64(nodeGpuInfo.GpuTotalMemory.Value()) * 100
+					gpuReqCapFraction := float64(nodeGpuMemReq.Value()) / float64(nodeGpuInfo.GpuTotalMemory.Value()) * 100
 					gpuReqCapStr := fmt.Sprintf("%s/%s(%d%%)", nodeGpuMemReq.String(), nodeGpuInfo.GpuTotalMemory.String(), int(gpuReqCapFraction))
 					nodeOutputLine := []string{fmt.Sprintf("%s (%s)", node.Name, nodeGpuInfo.GpuModel), fmt.Sprintf("%d GPUs", nodeGpuInfo.GpuCount), gpuReqCapStr, fmt.Sprintf("%d Pods", nodeGpuInfo.NumPods)}
 					nodeGpuTable.Append(nodeOutputLine)
@@ -544,8 +548,8 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
 								continue // either no GPU or not allocated
 							}
 							devUsedGpuMem := deviceInfoBrief.GpuUsedMemory
-							devReqCapFraction := float64(devUsedGpuMem.Value())/float64(devTotalGpuMem.Value()) * 100
-							devReqCapStr :=  fmt.Sprintf("%s/%s(%d%%)", devUsedGpuMem.String(), devTotalGpuMem.String(), int(devReqCapFraction))
+							devReqCapFraction := float64(devUsedGpuMem.Value()) / float64(devTotalGpuMem.Value()) * 100
+							devReqCapStr := fmt.Sprintf("%s/%s(%d%%)", devUsedGpuMem.String(), devTotalGpuMem.String(), int(devReqCapFraction))
 							nodeOutputLineDev := []string{fmt.Sprintf("%s (%s)", node.Name, nodeGpuInfo.GpuModel), fmt.Sprintf("%d", idx), devReqCapStr, fmt.Sprintf("%s", deviceInfoBrief.PodList)}
 							nodeGpuTable.Append(nodeOutputLineDev)
 						}

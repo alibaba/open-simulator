@@ -13,8 +13,8 @@ type Cluster struct {
 
 type SimonSpec struct {
 	Cluster Cluster   `json:"cluster"`
-	AppList []AppInfo `json:"appList"`
-	NewNode string    `json:"newNode"`
+	AppList []AppInfo `json:"appList,omitempty"`
+	NewNode string    `json:"newNode,omitempty"`
 }
 
 type SimonMetaData struct {
