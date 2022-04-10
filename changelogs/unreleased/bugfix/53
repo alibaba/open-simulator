@@ -1,1 +1,0 @@
-return MinScore(0) when pod does not require storage resources

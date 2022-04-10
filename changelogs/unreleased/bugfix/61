@@ -1,1 +1,0 @@
-set ImagePullSecrets to nil when making valid pod
