@@ -7,3 +7,4 @@ kubeconfig
 *.log
 configmap-simon.yaml
 dist/*
+.vscode/*

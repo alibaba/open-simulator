@@ -353,6 +353,19 @@ func GetObjectHashCodeDigit(isPod bool) int {
 	return simontype.WorkLoadHashCodeDigit
 }
 
+// NodeShouldRunPod determines whether a node should run a pod according to scheduling rules
+func NodeShouldRunPod(node *corev1.Node, pod *corev1.Pod) bool {
+	if node == nil {
+		return false
+	}
+	taints := node.Spec.Taints
+	fitsNodeName, fitsNodeAffinity, fitsTaints := daemon.Predicates(pod, node, taints)
+	if !fitsNodeName || !fitsNodeAffinity || !fitsTaints {
+		return false
+	}
+	return true
+}
+
 func MakeValidPodsByDaemonset(ds *appsv1.DaemonSet, nodes []*corev1.Node) ([]*corev1.Pod, error) {
 	var pods []*corev1.Pod
 	ds.UID = uuid.NewUUID()
@@ -382,19 +395,6 @@ func NewDaemonPod(ds *appsv1.DaemonSet, nodeName string) (*corev1.Pod, error) {
 	validPod = AddWorkloadInfoToPod(validPod, simontype.DaemonSet, ds.Name, ds.Namespace)
 
 	return validPod, nil
-}
-
-// NodeShouldRunPod determines whether a node should run a pod according to scheduling rules
-func NodeShouldRunPod(node *corev1.Node, pod *corev1.Pod) bool {
-	if node == nil {
-		return false
-	}
-	taints := node.Spec.Taints
-	fitsNodeName, fitsNodeAffinity, fitsTaints := daemon.Predicates(pod, node, taints)
-	if !fitsNodeName || !fitsNodeAffinity || !fitsTaints {
-		return false
-	}
-	return true
 }
 
 func MakeValidPodByPod(pod *corev1.Pod) (*corev1.Pod, error) {
@@ -766,61 +766,6 @@ func MultiplyQuant(quant resource.Quantity, factor float64) resource.Quantity {
 func GetNodeAllocatable(node *corev1.Node) (resource.Quantity, resource.Quantity) {
 	nodeAllocatable := node.Status.Allocatable.DeepCopy()
 	return *nodeAllocatable.Cpu(), *nodeAllocatable.Memory()
-}
-
-func MeetResourceRequests(node *corev1.Node, pod *corev1.Pod, daemonSets []*appsv1.DaemonSet) (bool, error) {
-	if node == nil {
-		return false, nil
-	}
-	// CPU and Memory
-	totalResource := map[corev1.ResourceName]*resource.Quantity{
-		corev1.ResourceCPU:    resource.NewQuantity(0, resource.DecimalSI),
-		corev1.ResourceMemory: resource.NewQuantity(0, resource.DecimalSI),
-	}
-
-	for _, item := range daemonSets {
-		newItem := item
-		daemonPod, err := NewDaemonPod(newItem, simontype.NewNodeNamePrefix)
-		if err != nil {
-			return false, err
-		}
-		if NodeShouldRunPod(node, daemonPod) {
-			for _, container := range daemonPod.Spec.Containers {
-				totalResource[corev1.ResourceCPU].Add(*container.Resources.Requests.Cpu())
-				totalResource[corev1.ResourceMemory].Add(*container.Resources.Requests.Memory())
-			}
-		}
-	}
-	for _, container := range pod.Spec.Containers {
-		totalResource[corev1.ResourceCPU].Add(*container.Resources.Requests.Cpu())
-		totalResource[corev1.ResourceMemory].Add(*container.Resources.Requests.Memory())
-	}
-
-	if totalResource[corev1.ResourceCPU].Cmp(*node.Status.Allocatable.Cpu()) == 1 ||
-		totalResource[corev1.ResourceMemory].Cmp(*node.Status.Allocatable.Memory()) == 1 {
-		return false, nil
-	}
-
-	// Local Storage
-	nodeStorage, err := GetNodeStorage(node)
-	if err != nil {
-		return false, err
-	} else if nodeStorage == nil {
-		return true, nil
-	}
-	var nodeVGMax int64 = 0
-	for _, vg := range nodeStorage.VGs {
-		if vg.Capacity > int64(nodeVGMax) {
-			nodeVGMax = vg.Capacity
-		}
-	}
-	lvmPVCs, _ := GetPodLocalPVCs(pod)
-	var pvcSum int64 = 0
-	for _, pvc := range lvmPVCs {
-		pvcSum += localutils.GetPVCRequested(pvc)
-	}
-
-	return pvcSum <= nodeVGMax, nil
 }
 
 func CreateKubeClient(kubeconfig string) (*clientset.Clientset, error) {
