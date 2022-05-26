@@ -2,7 +2,6 @@ package simontype
 
 import (
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -40,13 +39,6 @@ const (
 	Job                   = "Job"
 	CronJob               = "CronJob"
 
-	ConfigMapName      = "simulator-plan"
-	ConfigMapNamespace = metav1.NamespaceSystem
-	ConfigMapFileName  = "configmap-simon.yaml"
-
-	NotesFileSuffix       = "NOTES.txt"
-	SeparateSymbol        = "-"
-	WorkLoadHashCodeDigit = 10
-	PodHashCodeDigit      = 5
-	MaxNumNewNode         = 100
+	NotesFileSuffix = "NOTES.txt"
+	SeparateSymbol  = "-"
 )

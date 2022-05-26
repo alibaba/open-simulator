@@ -385,7 +385,7 @@ func (n *GpuNodeInfo) ExportGpuNodeInfoAsNodeGpuInfo() *NodeGpuInfo {
 	devsBrief := map[int]*DeviceInfoBrief{}
 	for idx, d := range n.devs {
 		dib := d.ExportDeviceInfoBrief()
-		if dib.GpuUsedMemory.Value() > 0 {
+		if dib.GpuUsedMemory.Value() >= dib.GpuTotalMemory.Value() {
 			gpuAllocatable -= 1
 		}
 		devsBrief[idx] = dib
