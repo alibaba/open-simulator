@@ -1,8 +1,6 @@
 package utils
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -333,8 +331,9 @@ func SetObjectMetaFromObject(owner metav1.Object, genPod bool) metav1.ObjectMeta
 	case *batchv1.Job:
 		controllerKind = batchv1.SchemeGroupVersion.WithKind(simontype.Job)
 	}
+
 	return metav1.ObjectMeta{
-		Name:         owner.GetName() + simontype.SeparateSymbol + GetSHA256HashCode([]byte(rand.String(10)), GetObjectHashCodeDigit(genPod)),
+		Name:         owner.GetName() + simontype.SeparateSymbol + rand.String(10),
 		Namespace:    owner.GetNamespace(),
 		UID:          uuid.NewUUID(),
 		Annotations:  owner.GetAnnotations(),
@@ -344,13 +343,6 @@ func SetObjectMetaFromObject(owner metav1.Object, genPod bool) metav1.ObjectMeta
 			*metav1.NewControllerRef(owner, controllerKind),
 		},
 	}
-}
-
-func GetObjectHashCodeDigit(isPod bool) int {
-	if isPod {
-		return simontype.PodHashCodeDigit
-	}
-	return simontype.WorkLoadHashCodeDigit
 }
 
 // NodeShouldRunPod determines whether a node should run a pod according to scheduling rules
@@ -529,13 +521,6 @@ func ValidatePod(pod *corev1.Pod) error {
 		return fmt.Errorf("invalid pod: %#v ", strings.Join(errStrs, "\n"))
 	}
 	return nil
-}
-
-func GetSHA256HashCode(message []byte, num int) string {
-	hash := sha256.New()
-	hash.Write(message)
-	hashCode := hex.EncodeToString(hash.Sum(nil))
-	return hashCode[:num]
 }
 
 type NodeStorage struct {
