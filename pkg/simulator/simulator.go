@@ -378,15 +378,13 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 		resource.Nodes = append(resource.Nodes, &newItem)
 	}
 
-	// TODO:
-	// For all pods in the real cluster, we only retain static pods.
 	// We will regenerate pods of all workloads in the follow-up stage.
-	podItems, err := client.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+	podItems, err := client.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{FieldSelector: "status.phase=Running"})
 	if err != nil {
 		return resource, fmt.Errorf("unable to list pods: %v", err)
 	}
 	for _, item := range podItems.Items {
-		if !ownedByDaemonset(item.OwnerReferences) && item.Status.Phase == corev1.PodRunning && item.DeletionTimestamp == nil {
+		if !ownedByDaemonset(item.OwnerReferences) && item.DeletionTimestamp == nil {
 			newItem := item
 			resource.Pods = append(resource.Pods, &newItem)
 		}
