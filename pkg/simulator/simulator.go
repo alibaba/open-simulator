@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,6 +18,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
+	utiltrace "k8s.io/utils/trace"
 
 	"github.com/alibaba/open-simulator/pkg/algo"
 	simonplugin "github.com/alibaba/open-simulator/pkg/simulator/plugin"
@@ -283,13 +285,6 @@ func (sim *Simulator) syncClusterResourceList(resourceList ResourceTypes) (*Simu
 		}
 	}
 
-	//sync rc
-	for _, item := range resourceList.ReplicationControllers {
-		if _, err := sim.fakeclient.CoreV1().ReplicationControllers(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return nil, fmt.Errorf("unable to copy RC: %v", err)
-		}
-	}
-
 	//sync deployment
 	for _, item := range resourceList.Deployments {
 		if _, err := sim.fakeclient.AppsV1().Deployments(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
@@ -369,6 +364,8 @@ func WithSchedulerConfig(schedulerConfig string) Option {
 func CreateClusterResourceFromClient(client externalclientset.Interface) (ResourceTypes, error) {
 	var resource ResourceTypes
 	var err error
+	trace := utiltrace.New("Trace CreateClusterResourceFromClient")
+	defer trace.LogIfLong(100 * time.Millisecond)
 	nodeItems, err := client.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return resource, fmt.Errorf("unable to list nodes: %v", err)
@@ -377,9 +374,10 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 		newItem := item
 		resource.Nodes = append(resource.Nodes, &newItem)
 	}
+	trace.Step("CreateClusterResourceFromClient: List Node done")
 
 	// We will regenerate pods of all workloads in the follow-up stage.
-	podItems, err := client.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{FieldSelector: "status.phase=Running"})
+	podItems, err := client.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{FieldSelector: "status.phase=Running", ResourceVersion: "0"})
 	if err != nil {
 		return resource, fmt.Errorf("unable to list pods: %v", err)
 	}
@@ -389,6 +387,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 			resource.Pods = append(resource.Pods, &newItem)
 		}
 	}
+	trace.Step("CreateClusterResourceFromClient: List Pod done")
 
 	pdbItems, err := client.PolicyV1beta1().PodDisruptionBudgets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {

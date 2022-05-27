@@ -191,6 +191,7 @@ func (applier *Applier) Run() (err error) {
 		}
 		newClusterResource.Nodes = append(newClusterResource.Nodes, nodes...)
 		result, err = simulator.Simulate(newClusterResource, selectedResourceList)
+
 		if err != nil {
 			return err
 		}
@@ -646,7 +647,6 @@ func reportAppInfo(nodeStatuses []simulator.NodeStatus, appNameList []string) {
 		}
 
 		for _, status := range nodeStatuses {
-			fmt.Println(status.Node.Name)
 			podTable := tablewriter.NewWriter(os.Stdout)
 			podTable.SetHeader(header)
 			for _, pod := range status.Pods {
@@ -667,8 +667,11 @@ func reportAppInfo(nodeStatuses []simulator.NodeStatus, appNameList []string) {
 			podTable.SetAutoMergeCellsByColumnIndex([]int{0})
 			podTable.SetRowLine(true)
 			podTable.SetAlignment(tablewriter.ALIGN_LEFT)
-			podTable.Render() // Send output
-			fmt.Println()
+			if podTable.NumLines() != 0 {
+				fmt.Println(status.Node.Name)
+				podTable.Render() // Send output
+				fmt.Println()
+			}
 		}
 	}
 }

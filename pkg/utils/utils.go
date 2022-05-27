@@ -157,29 +157,6 @@ func MakeValidPodsByReplicaSet(rs *appsv1.ReplicaSet) ([]*corev1.Pod, error) {
 	return pods, nil
 }
 
-func MakeValidPodsByReplicationController(rc *corev1.ReplicationController) ([]*corev1.Pod, error) {
-	var pods []*corev1.Pod
-	rc.UID = uuid.NewUUID()
-	if rc.Spec.Replicas == nil {
-		var replica int32 = 1
-		rc.Spec.Replicas = &replica
-	}
-
-	for ordinal := 0; ordinal < int(*rc.Spec.Replicas); ordinal++ {
-		pod := &corev1.Pod{
-			ObjectMeta: SetObjectMetaFromObject(rc, true),
-			Spec:       rc.Spec.Template.Spec,
-		}
-		validPod, err := MakeValidPod(pod)
-		if err != nil {
-			return nil, err
-		}
-		validPod = AddWorkloadInfoToPod(validPod, simontype.ReplicationController, rc.Name, rc.Namespace)
-		pods = append(pods, validPod)
-	}
-	return pods, nil
-}
-
 func generateReplicaSetFromDeployment(deploy *appsv1.Deployment) *appsv1.ReplicaSet {
 	return &appsv1.ReplicaSet{
 		TypeMeta:   metav1.TypeMeta{APIVersion: appsv1.SchemeGroupVersion.String(), Kind: simontype.ReplicaSet},
@@ -324,8 +301,6 @@ func SetObjectMetaFromObject(owner metav1.Object, genPod bool) metav1.ObjectMeta
 		controllerKind = appsv1.SchemeGroupVersion.WithKind(simontype.StatefulSet)
 	case *appsv1.DaemonSet:
 		controllerKind = appsv1.SchemeGroupVersion.WithKind(simontype.DaemonSet)
-	case *corev1.ReplicationController:
-		controllerKind = corev1.SchemeGroupVersion.WithKind(simontype.ReplicationController)
 	case *batchv1beta1.CronJob:
 		controllerKind = batchv1beta1.SchemeGroupVersion.WithKind(simontype.CronJob)
 	case *batchv1.Job:

@@ -10,8 +10,8 @@ spec:
   #   kubeConfig: 真实集群的kube-config文件
   #   以上两者取其一
   cluster:
-    customConfig: example/cluster/demo_1
-    # kubeConfig:
+    # customConfig: example/cluster/demo_1
+    kubeConfig: /Users/sunzhiheng/.kube/config
 
   # appList: 导入需部署的应用
   # 支持chart和非chart文件
