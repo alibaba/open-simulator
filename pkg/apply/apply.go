@@ -333,16 +333,26 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 	}...)
 	nodeTable.SetHeader(nodeTableHeader)
 
-	var allPods []corev1.Pod
+	nodeReq := make(map[string]map[corev1.ResourceName]resource.Quantity, len(nodeStatuses))
 	for _, status := range nodeStatuses {
+		reqs := make(map[corev1.ResourceName]resource.Quantity)
+		nodeReq[status.Node.Name] = reqs
 		for _, pod := range status.Pods {
-			allPods = append(allPods, *pod)
+			podReqs, _ := resourcehelper.PodRequestsAndLimits(pod)
+			for podReqName, podReqValue := range podReqs {
+				if value, ok := reqs[podReqName]; !ok {
+					reqs[podReqName] = podReqValue.DeepCopy()
+				} else {
+					value.Add(podReqValue)
+					reqs[podReqName] = value
+				}
+			}
 		}
 	}
 	for _, status := range nodeStatuses {
 		node := status.Node
 		allocatable := node.Status.Allocatable
-		reqs, _ := utils.GetPodsTotalRequestsAndLimitsByNodeName(allPods, node.Name)
+		reqs := nodeReq[status.Node.Name]
 		nodeCpuReq, nodeMemoryReq := reqs[corev1.ResourceCPU], reqs[corev1.ResourceMemory]
 		nodeCpuReqFraction := float64(nodeCpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
 		nodeMemoryReqFraction := float64(nodeMemoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
@@ -360,12 +370,10 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 		}
 		if containGpu(extendedResources) {
 			nodeGpuMemReq := resource.NewQuantity(0, resource.BinarySI)
-			for _, pod := range allPods {
-				if pod.Spec.NodeName == node.Name {
-					gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodAnnotation(&pod)
-					gpuMemReq := resource.NewQuantity(int64(gpuMem*gpuNum), resource.BinarySI)
-					nodeGpuMemReq.Add(*gpuMemReq)
-				}
+			for _, pod := range status.Pods {
+				gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodAnnotation(pod)
+				gpuMemReq := resource.NewQuantity(int64(gpuMem*gpuNum), resource.BinarySI)
+				nodeGpuMemReq.Add(*gpuMemReq)
 			}
 			nodeGpuMemFraction := float64(nodeGpuMemReq.Value()) / float64(allocatable.Name(gpushareutils.ResourceName, resource.BinarySI).Value()) * 100
 			data = append(data, []string{
@@ -455,12 +463,10 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 						continue
 					}
 					nodeGpuMemReq := resource.NewQuantity(0, resource.BinarySI)
-					for _, pod := range allPods {
-						if pod.Spec.NodeName == node.Name {
-							gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodAnnotation(&pod)
-							gpuMemReq := resource.NewQuantity(int64(gpuMem*gpuNum), resource.BinarySI)
-							nodeGpuMemReq.Add(*gpuMemReq)
-						}
+					for _, pod := range status.Pods {
+						gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodAnnotation(pod)
+						gpuMemReq := resource.NewQuantity(int64(gpuMem*gpuNum), resource.BinarySI)
+						nodeGpuMemReq.Add(*gpuMemReq)
 					}
 					gpuReqCapFraction := float64(nodeGpuMemReq.Value()) / float64(nodeGpuInfo.GpuTotalMemory.Value()) * 100
 					gpuReqCapStr := fmt.Sprintf("%s/%s(%d%%)", nodeGpuMemReq.String(), nodeGpuInfo.GpuTotalMemory.String(), int(gpuReqCapFraction))
