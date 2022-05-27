@@ -240,7 +240,7 @@ func (applier *Applier) Run() (err error) {
 
 	if canBeScheduled {
 		fmt.Println("Simulation success!")
-		report(result.NodeStatus, applier.extendedResources)
+		report(result.NodeStatus, applier.extendedResources, selectedAppNameList)
 	}
 
 	return nil
@@ -306,9 +306,10 @@ func newFakeNodes(node *corev1.Node, nodeCount int) ([]*corev1.Node, error) {
 }
 
 // report print out scheduling result of pods
-func report(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
+func report(nodeStatuses []simulator.NodeStatus, extendedResources []string, appNameList []string) {
 	reportClusterInfo(nodeStatuses, extendedResources)
 	reportNodeInfo(nodeStatuses, extendedResources)
+	reportAppInfo(nodeStatuses, appNameList)
 }
 
 func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
@@ -537,9 +538,7 @@ func reportNodeInfo(nodeStatuses []simulator.NodeStatus, extendedResources []str
 		selectedNodeMap[nodeName] = struct{}{}
 	}
 	fmt.Println("Pod Info")
-	podTable := tablewriter.NewWriter(os.Stdout)
 	header := []string{
-		"Node",
 		"Pod",
 		"CPU Requests",
 		"Memory Requests",
@@ -551,13 +550,15 @@ func reportNodeInfo(nodeStatuses []simulator.NodeStatus, extendedResources []str
 		header = append(header, "GPU Mem Requests")
 	}
 	header = append(header, "APP Name")
-	podTable.SetHeader(header)
 
 	for _, status := range nodeStatuses {
 		node := status.Node
 		if _, selected := selectedNodeMap[node.Name]; !selected {
 			continue
 		}
+		fmt.Println(status.Node.Name)
+		podTable := tablewriter.NewWriter(os.Stdout)
+		podTable.SetHeader(header)
 		allocatable := node.Status.Allocatable
 		for _, pod := range status.Pods {
 			if pod.Spec.NodeName != node.Name {
@@ -574,7 +575,6 @@ func reportNodeInfo(nodeStatuses []simulator.NodeStatus, extendedResources []str
 				appname = str
 			}
 			data := []string{
-				node.Name,
 				fmt.Sprintf("%s/%s", pod.Namespace, pod.Name),
 				fmt.Sprintf("%s(%d%%)", cpuReq.String(), int64(fractionCpuReq)),
 				fmt.Sprintf("%s(%d%%)", memoryReq.String(), int64(fractionMemoryReq)),
@@ -607,11 +607,70 @@ func reportNodeInfo(nodeStatuses []simulator.NodeStatus, extendedResources []str
 			data = append(data, appname)
 			podTable.Append(data)
 		}
+		podTable.SetAutoMergeCellsByColumnIndex([]int{0})
+		podTable.SetRowLine(true)
+		podTable.SetAlignment(tablewriter.ALIGN_LEFT)
+		podTable.Render() // Send output
+		fmt.Println()
 	}
-	podTable.SetAutoMergeCellsByColumnIndex([]int{0})
-	podTable.SetRowLine(true)
-	podTable.SetAlignment(tablewriter.ALIGN_LEFT)
-	podTable.Render() // Send output
+}
+
+func reportAppInfo(nodeStatuses []simulator.NodeStatus, appNameList []string) {
+	var selectedAppNameList []string
+	if len(appNameList) == 0 {
+		return
+	} else {
+		var multiQs = []*survey.Question{
+			{
+				Name: "APPs",
+				Prompt: &survey.MultiSelect{
+					Message: "Select apps to show:",
+					Options: appNameList,
+				},
+			},
+		}
+		err := survey.Ask(multiQs, &selectedAppNameList)
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+
+		fmt.Println("App Info")
+		header := []string{
+			"Pod",
+			"App Name",
+		}
+
+		selectedAppNameMap := make(map[string]struct{}, len(selectedAppNameList))
+		for _, name := range selectedAppNameList {
+			selectedAppNameMap[name] = struct{}{}
+		}
+
+		for _, status := range nodeStatuses {
+			fmt.Println(status.Node.Name)
+			podTable := tablewriter.NewWriter(os.Stdout)
+			podTable.SetHeader(header)
+			for _, pod := range status.Pods {
+				// app name
+				appname := ""
+				if str, exist := pod.Labels[simontype.LabelAppName]; exist {
+					appname = str
+				}
+				if _, exist := selectedAppNameMap[appname]; !exist {
+					continue
+				}
+				data := []string{
+					fmt.Sprintf("%s/%s", pod.Namespace, pod.Name),
+					appname,
+				}
+				podTable.Append(data)
+			}
+			podTable.SetAutoMergeCellsByColumnIndex([]int{0})
+			podTable.SetRowLine(true)
+			podTable.SetAlignment(tablewriter.ALIGN_LEFT)
+			podTable.Render() // Send output
+			fmt.Println()
+		}
+	}
 }
 
 func satisfyResourceSetting(nodeStatuses []simulator.NodeStatus) (bool, string, error) {
