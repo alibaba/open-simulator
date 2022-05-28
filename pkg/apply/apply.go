@@ -183,20 +183,23 @@ func (applier *Applier) Run() (err error) {
 	var result *simulator.SimulateResult
 	canBeScheduled := false
 	newNodeNum := 0
+	choose := ""
 	for {
-		newClusterResource := clusterResourceCopy
-		nodes, err := newFakeNodes(newNode, newNodeNum)
-		if err != nil {
-			return err
-		}
-		newClusterResource.Nodes = append(newClusterResource.Nodes, nodes...)
-		result, err = simulator.Simulate(newClusterResource, selectedResourceList)
+		if choose != SurveyShowResults {
+			newClusterResource := clusterResourceCopy
+			nodes, err := newFakeNodes(newNode, newNodeNum)
+			if err != nil {
+				return err
+			}
+			newClusterResource.Nodes = append(newClusterResource.Nodes, nodes...)
+			result, err = simulator.Simulate(newClusterResource, selectedResourceList)
 
-		if err != nil {
-			return err
+			if err != nil {
+				return err
+			}
 		}
+
 		if len(result.UnscheduledPods) != 0 {
-			choose := ""
 			prompt := &survey.Select{
 				Message: fmt.Sprintf("there are still %d pod(s) that can not be scheduled when add %d nodes, you can:", len(result.UnscheduledPods), newNodeNum),
 				Options: []string{SurveyShowResults, SurveyAddNode, SurveyExit},

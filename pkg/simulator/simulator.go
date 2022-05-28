@@ -190,19 +190,26 @@ func (sim *Simulator) ScheduleApp(app AppResource) (*SimulateResult, error) {
 
 func (sim *Simulator) getClusterNodeStatus() []NodeStatus {
 	var nodeStatues []NodeStatus
+	nodeStatusMap := make(map[string]NodeStatus)
 	nodes, _ := sim.fakeclient.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
 	allPods, _ := sim.fakeclient.CoreV1().Pods(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{})
+
 	for _, node := range nodes.Items {
 		nodeStatus := NodeStatus{}
 		nodeStatus.Node = node.DeepCopy()
 		nodeStatus.Pods = make([]*corev1.Pod, 0)
-		for _, pod := range allPods.Items {
-			if pod.Spec.NodeName != node.Name {
-				continue
-			}
-			nodeStatus.Pods = append(nodeStatus.Pods, pod.DeepCopy())
-		}
-		nodeStatues = append(nodeStatues, nodeStatus)
+		nodeStatusMap[node.Name] = nodeStatus
+	}
+
+	for _, pod := range allPods.Items {
+		nodeStatus := nodeStatusMap[pod.Spec.NodeName]
+		nodeStatus.Pods = append(nodeStatus.Pods, pod.DeepCopy())
+		nodeStatusMap[pod.Spec.NodeName] = nodeStatus
+	}
+
+	for _, node := range nodes.Items {
+		status := nodeStatusMap[node.Name]
+		nodeStatues = append(nodeStatues, status)
 	}
 	return nodeStatues
 }
@@ -320,7 +327,7 @@ func (sim *Simulator) syncClusterResourceList(resourceList ResourceTypes) (*Simu
 	}
 
 	// sync pods
-	pterm.FgYellow.Printf("sync %d pod(s)\n", len(resourceList.Pods))
+	pterm.FgYellow.Printf("sync %d pod(s) to fake cluster\n", len(resourceList.Pods))
 	failedPods, err := sim.schedulePods(resourceList.Pods)
 	if err != nil {
 		return nil, err
@@ -371,6 +378,7 @@ func WithSchedulerConfig(schedulerConfig string) Option {
 func CreateClusterResourceFromClient(client externalclientset.Interface) (ResourceTypes, error) {
 	var resource ResourceTypes
 	var err error
+	spinner, _ := pterm.DefaultSpinner.WithShowTimer().Start("get resource info from kube client")
 	trace := utiltrace.New("Trace CreateClusterResourceFromClient")
 	defer trace.LogIfLong(100 * time.Millisecond)
 	nodeItems, err := client.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
@@ -440,6 +448,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 		newItem := item
 		resource.DaemonSets = append(resource.DaemonSets, &newItem)
 	}
+	spinner.Success("get resource info from kube client done!")
 
 	return resource, nil
 }
