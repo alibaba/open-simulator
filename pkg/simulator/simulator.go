@@ -44,6 +44,8 @@ type Simulator struct {
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 
+	writeToFile bool
+
 	status status
 }
 
@@ -55,6 +57,7 @@ type status struct {
 type simulatorOptions struct {
 	kubeconfig      string
 	schedulerConfig string
+	writeToFile     bool
 }
 
 // Option configures a Simulator
@@ -63,6 +66,7 @@ type Option func(*simulatorOptions)
 var defaultSimulatorOptions = simulatorOptions{
 	kubeconfig:      "",
 	schedulerConfig: "",
+	writeToFile:     false,
 }
 
 // New generates all components that will be needed to simulate scheduling and returns a complete simulator
@@ -74,17 +78,17 @@ func New(opts ...Option) (Interface, error) {
 		opt(&options)
 	}
 
-	// Step 2: get scheduler CompletedConfig and set the list of scheduler bind plugins to Simon.
+	// Step 1: get scheduler CompletedConfig and set the list of scheduler bind plugins to Simon.
 	kubeSchedulerConfig, err := GetAndSetSchedulerConfig(options.schedulerConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 3: create fake client
+	// Step 2: create fake client
 	fakeClient := fakeclientset.NewSimpleClientset()
 	sharedInformerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
 
-	// Step 4: Create the simulator
+	// Step 3: Create the simulator
 	ctx, cancel := context.WithCancel(context.Background())
 	sim := &Simulator{
 		// externalclient:  kubeClient,
@@ -93,6 +97,7 @@ func New(opts ...Option) (Interface, error) {
 		informerFactory: sharedInformerFactory,
 		ctx:             ctx,
 		cancelFunc:      cancel,
+		writeToFile:     options.writeToFile,
 	}
 
 	// Step 5: add event handler for pods
@@ -229,9 +234,15 @@ func (sim *Simulator) runScheduler() {
 // Run starts to schedule pods
 func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error) {
 	var failedPods []UnscheduledPod
-	p, _ := pterm.DefaultProgressbar.WithTotal(len(pods)).Start()
+	var progressBar *pterm.ProgressbarPrinter
+	if !sim.writeToFile {
+		progressBar, _ = pterm.DefaultProgressbar.WithTotal(len(pods)).Start()
+	}
 	for _, pod := range pods {
-		p.UpdateTitle(fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)) // Update the title of the progressbar.
+		if !sim.writeToFile {
+			// Update the title of the progressbar.
+			progressBar.UpdateTitle(fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+		}
 		if _, err := sim.fakeclient.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{}); err != nil {
 			return nil, fmt.Errorf("%s %s/%s: %s", simontype.CreatePodError, pod.Namespace, pod.Name, err.Error())
 		}
@@ -252,7 +263,9 @@ func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error)
 			})
 			sim.status.stopReason = ""
 		}
-		p.Increment()
+		if !sim.writeToFile {
+			progressBar.Increment()
+		}
 	}
 	return failedPods, nil
 }
@@ -374,11 +387,22 @@ func WithSchedulerConfig(schedulerConfig string) Option {
 	}
 }
 
+// WithSchedulerConfig sets schedulerConfig for Simulator, the default value is ""
+func WriteToFile(writeToFile bool) Option {
+	return func(o *simulatorOptions) {
+		o.writeToFile = writeToFile
+	}
+}
+
 // CreateClusterResourceFromClient returns a ResourceTypes struct by kube-client that connects a real cluster
-func CreateClusterResourceFromClient(client externalclientset.Interface) (ResourceTypes, error) {
+func CreateClusterResourceFromClient(client externalclientset.Interface, writeToFile bool) (ResourceTypes, error) {
 	var resource ResourceTypes
 	var err error
-	spinner, _ := pterm.DefaultSpinner.WithShowTimer().Start("get resource info from kube client")
+	var spinner *pterm.SpinnerPrinter
+	if !writeToFile {
+		spinner, _ = pterm.DefaultSpinner.WithShowTimer().Start("get resource info from kube client")
+	}
+
 	trace := utiltrace.New("Trace CreateClusterResourceFromClient")
 	defer trace.LogIfLong(100 * time.Millisecond)
 	nodeItems, err := client.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
@@ -448,7 +472,9 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 		newItem := item
 		resource.DaemonSets = append(resource.DaemonSets, &newItem)
 	}
-	spinner.Success("get resource info from kube client done!")
+	if !writeToFile {
+		spinner.Success("get resource info from kube client done!")
+	}
 
 	return resource, nil
 }

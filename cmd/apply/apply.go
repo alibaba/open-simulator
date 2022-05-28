@@ -26,6 +26,7 @@ var ApplyCmd = &cobra.Command{
 func init() {
 	ApplyCmd.Flags().StringVarP(&options.SimonConfig, "simon-config", "f", options.SimonConfig, "path to the cluster kube-config file used to connect cluster, one of both kube-config and cluster-config must exist.")
 	ApplyCmd.Flags().StringVar(&options.DefaultSchedulerConfigFile, "default-scheduler-config", options.DefaultSchedulerConfigFile, "path to JSON or YAML file containing scheduler configuration.")
+	ApplyCmd.Flags().StringVar(&options.OutputFile, "output-file", options.OutputFile, "save report to output file.")
 	ApplyCmd.Flags().BoolVar(&options.UseGreed, "use-greed", false, "use greedy algorithm when queue pods")
 	ApplyCmd.Flags().BoolVarP(&options.Interactive, "interactive", "i", false, "interactive mode")
 	ApplyCmd.Flags().StringSliceVar(&options.ExtendedResources, "extended-resources", nil, "show extended resources when reporting, e.g. open-local")

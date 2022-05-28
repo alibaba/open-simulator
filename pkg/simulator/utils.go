@@ -74,11 +74,6 @@ func GenerateValidPodsFromAppResources(client externalclientset.Interface, appna
 	return pods, nil
 }
 
-func handlePods() []*corev1.Pod {
-
-	return nil
-}
-
 // GetValidPodExcludeDaemonSet gets valid pod by resources exclude DaemonSet that needs to be handled specially
 const RoutinePodNum = 100
 
