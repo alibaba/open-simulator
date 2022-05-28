@@ -145,7 +145,7 @@ func MakeValidPodsByReplicaSet(rs *appsv1.ReplicaSet) ([]*corev1.Pod, error) {
 	}
 	for ordinal := 0; ordinal < int(*rs.Spec.Replicas); ordinal++ {
 		pod := &corev1.Pod{
-			ObjectMeta: SetObjectMetaFromObject(rs, true),
+			ObjectMeta: SetObjectMetaFromObject(rs, &rs.Spec.Template),
 			Spec:       rs.Spec.Template.Spec,
 		}
 		validPod, err := MakeValidPod(pod)
@@ -161,7 +161,7 @@ func MakeValidPodsByReplicaSet(rs *appsv1.ReplicaSet) ([]*corev1.Pod, error) {
 func generateReplicaSetFromDeployment(deploy *appsv1.Deployment) *appsv1.ReplicaSet {
 	return &appsv1.ReplicaSet{
 		TypeMeta:   metav1.TypeMeta{APIVersion: appsv1.SchemeGroupVersion.String(), Kind: simontype.ReplicaSet},
-		ObjectMeta: SetObjectMetaFromObject(deploy, false),
+		ObjectMeta: SetObjectMetaFromObject(deploy, &deploy.Spec.Template),
 		Spec: appsv1.ReplicaSetSpec{
 			Selector: deploy.Spec.Selector,
 			Replicas: deploy.Spec.Replicas,
@@ -188,7 +188,7 @@ func MakeValidPodByJob(job *batchv1.Job) ([]*corev1.Pod, error) {
 
 	for ordinal := 0; ordinal < int(*job.Spec.Completions); ordinal++ {
 		pod := &corev1.Pod{
-			ObjectMeta: SetObjectMetaFromObject(job, true),
+			ObjectMeta: SetObjectMetaFromObject(job, &job.Spec.Template),
 			Spec:       job.Spec.Template.Spec,
 		}
 		validPod, err := MakeValidPod(pod)
@@ -211,7 +211,7 @@ func generateJobFromCronJob(cronJob *batchv1beta1.CronJob) *batchv1.Job {
 
 	return &batchv1.Job{
 		TypeMeta:   metav1.TypeMeta{APIVersion: batchv1.SchemeGroupVersion.String(), Kind: simontype.Job},
-		ObjectMeta: SetObjectMetaFromObject(cronJob, false),
+		ObjectMeta: SetObjectMetaFromObject(cronJob, &cronJob.Spec.JobTemplate.Spec.Template),
 		Spec:       cronJob.Spec.JobTemplate.Spec,
 	}
 }
@@ -226,7 +226,7 @@ func MakeValidPodsByStatefulSet(ss *appsv1.StatefulSet) ([]*corev1.Pod, error) {
 
 	for ordinal := 0; ordinal < int(*ss.Spec.Replicas); ordinal++ {
 		pod := &corev1.Pod{
-			ObjectMeta: SetObjectMetaFromObject(ss, true),
+			ObjectMeta: SetObjectMetaFromObject(ss, &ss.Spec.Template),
 			Spec:       ss.Spec.Template.Spec,
 		}
 		validPod, err := MakeValidPod(pod)
@@ -291,7 +291,7 @@ func SetStorageAnnotationOnPods(pods []*corev1.Pod, volumeClaimTemplates []corev
 	return nil
 }
 
-func SetObjectMetaFromObject(owner metav1.Object, genPod bool) metav1.ObjectMeta {
+func SetObjectMetaFromObject(owner metav1.Object, template metav1.Object) metav1.ObjectMeta {
 	var controllerKind schema.GroupVersionKind
 	switch owner.(type) {
 	case *appsv1.Deployment:
@@ -312,9 +312,9 @@ func SetObjectMetaFromObject(owner metav1.Object, genPod bool) metav1.ObjectMeta
 		Name:         owner.GetName() + simontype.SeparateSymbol + rand.String(10),
 		Namespace:    owner.GetNamespace(),
 		UID:          uuid.NewUUID(),
-		Annotations:  owner.GetAnnotations(),
+		Annotations:  template.GetAnnotations(),
 		GenerateName: owner.GetName(),
-		Labels:       owner.GetLabels(),
+		Labels:       template.GetLabels(),
 		OwnerReferences: []metav1.OwnerReference{
 			*metav1.NewControllerRef(owner, controllerKind),
 		},
@@ -352,7 +352,7 @@ func MakeValidPodsByDaemonset(ds *appsv1.DaemonSet, nodes []*corev1.Node) ([]*co
 
 func NewDaemonPod(ds *appsv1.DaemonSet, nodeName string) (*corev1.Pod, error) {
 	pod := &corev1.Pod{
-		ObjectMeta: SetObjectMetaFromObject(ds, true),
+		ObjectMeta: SetObjectMetaFromObject(ds, &ds.Spec.Template),
 		Spec:       ds.Spec.Template.Spec,
 	}
 	pod.Spec.Affinity = SetDaemonSetPodNodeNameByNodeAffinity(pod.Spec.Affinity, nodeName)
@@ -378,8 +378,8 @@ func MakeValidPodByPod(pod *corev1.Pod) (*corev1.Pod, error) {
 func MakeValidPod(oldPod *corev1.Pod) (*corev1.Pod, error) {
 	newPod := oldPod.DeepCopy()
 
-	if newPod.Labels == nil {
-		newPod.Labels = make(map[string]string)
+	if newPod.ObjectMeta.Labels == nil {
+		newPod.ObjectMeta.Labels = make(map[string]string)
 	}
 
 	// ObjectMeta
@@ -472,8 +472,12 @@ func MakeValidNodeByNode(node *corev1.Node, nodename string) (*corev1.Node, erro
 	node.ObjectMeta.UID = uuid.NewUUID()
 	if node.ObjectMeta.Labels == nil {
 		node.ObjectMeta.Labels = map[string]string{}
+	} else {
+		labels := node.ObjectMeta.Labels
+		labels[corev1.LabelHostname] = nodename
+		node.ObjectMeta.Labels = labels
 	}
-	node.ObjectMeta.Labels[corev1.LabelHostname] = nodename
+
 	if node.ObjectMeta.Annotations == nil {
 		node.ObjectMeta.Annotations = map[string]string{}
 	}

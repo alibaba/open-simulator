@@ -9,7 +9,7 @@ spec:
       app: busybox-sts
   podManagementPolicy: Parallel
   serviceName: "busybox"
-  replicas: 4
+  replicas: 8
   template:
     metadata:
       labels:
@@ -17,14 +17,16 @@ spec:
     spec:
       affinity:
         podAntiAffinity:
-          # requiredDuringSchedulingIgnoredDuringExecution:
-          # - labelSelector:
-          #     matchExpressions:
-          #     - key: app
-          #       operator: In
-          #       values:
-          #       - busybox-sts
-          #   topologyKey: kubernetes.io/hostname
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - busybox-sts
+            topologyKey: kubernetes.io/hostname
+            namespaces:
+            - simple
           preferredDuringSchedulingIgnoredDuringExecution:
           - weight: 100
             podAffinityTerm:
