@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pterm/pterm"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -165,9 +166,9 @@ func (sim *Simulator) RunCluster(cluster ResourceTypes) (*SimulateResult, error)
 	return sim.syncClusterResourceList(cluster)
 }
 
-func (sim *Simulator) ScheduleApp(apps AppResource) (*SimulateResult, error) {
+func (sim *Simulator) ScheduleApp(app AppResource) (*SimulateResult, error) {
 	// 由 AppResource 生成 Pods
-	appPods, err := GenerateValidPodsFromAppResources(sim.fakeclient, apps.Name, apps.Resource)
+	appPods, err := GenerateValidPodsFromAppResources(sim.fakeclient, app.Name, app.Resource)
 	if err != nil {
 		return nil, err
 	}
@@ -175,6 +176,8 @@ func (sim *Simulator) ScheduleApp(apps AppResource) (*SimulateResult, error) {
 	sort.Sort(affinityPriority)
 	tolerationPriority := algo.NewTolerationQueue(appPods)
 	sort.Sort(tolerationPriority)
+
+	fmt.Printf("%d pod(s) in app %s\n", len(appPods), app.Name)
 	failedPod, err := sim.schedulePods(appPods)
 	if err != nil {
 		return nil, err
@@ -219,7 +222,9 @@ func (sim *Simulator) runScheduler() {
 // Run starts to schedule pods
 func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error) {
 	var failedPods []UnscheduledPod
+	p, _ := pterm.DefaultProgressbar.WithTotal(len(pods)).Start()
 	for _, pod := range pods {
+		p.UpdateTitle(fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)) // Update the title of the progressbar.
 		if _, err := sim.fakeclient.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{}); err != nil {
 			return nil, fmt.Errorf("%s %s/%s: %s", simontype.CreatePodError, pod.Namespace, pod.Name, err.Error())
 		}
@@ -240,6 +245,7 @@ func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error)
 			})
 			sim.status.stopReason = ""
 		}
+		p.Increment()
 	}
 	return failedPods, nil
 }
@@ -314,6 +320,7 @@ func (sim *Simulator) syncClusterResourceList(resourceList ResourceTypes) (*Simu
 	}
 
 	// sync pods
+	fmt.Printf("sync %d pod(s)\n", len(resourceList.Pods))
 	failedPods, err := sim.schedulePods(resourceList.Pods)
 	if err != nil {
 		return nil, err

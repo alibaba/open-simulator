@@ -1,7 +1,6 @@
 package simulator
 
 import (
-	"fmt"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -105,7 +104,6 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 
 	// schedule pods
 	for _, app := range apps {
-		fmt.Printf("%d pod(s) in app %s\n", len(app.Resource.Pods), app.Name)
 		result, err = sim.ScheduleApp(app)
 		if err != nil {
 			return nil, err
