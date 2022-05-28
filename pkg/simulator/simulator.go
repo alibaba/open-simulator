@@ -177,7 +177,7 @@ func (sim *Simulator) ScheduleApp(app AppResource) (*SimulateResult, error) {
 	tolerationPriority := algo.NewTolerationQueue(appPods)
 	sort.Sort(tolerationPriority)
 
-	fmt.Printf("%d pod(s) in app %s\n", len(appPods), app.Name)
+	pterm.FgYellow.Printf("%d pod(s) in app %s\n", len(appPods), app.Name)
 	failedPod, err := sim.schedulePods(appPods)
 	if err != nil {
 		return nil, err
@@ -320,7 +320,7 @@ func (sim *Simulator) syncClusterResourceList(resourceList ResourceTypes) (*Simu
 	}
 
 	// sync pods
-	fmt.Printf("sync %d pod(s)\n", len(resourceList.Pods))
+	pterm.FgYellow.Printf("sync %d pod(s)\n", len(resourceList.Pods))
 	failedPods, err := sim.schedulePods(resourceList.Pods)
 	if err != nil {
 		return nil, err

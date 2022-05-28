@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/pquerna/ffjson/ffjson"
+	"github.com/pterm/pterm"
 	log "github.com/sirupsen/logrus"
 	"helm.sh/helm/v3/pkg/releaseutil"
 	appsv1 "k8s.io/api/apps/v1"
@@ -92,7 +93,7 @@ func ReadYamlFile(path string) []byte {
 	}
 	yamlFile, err := ioutil.ReadFile(path)
 	if err != nil {
-		fmt.Printf("Error while read file %s: %s\n", path, err.Error())
+		pterm.FgRed.Printf("Error while read file %s: %s\n", path, err.Error())
 		os.Exit(1)
 	}
 	return yamlFile
@@ -105,7 +106,7 @@ func ReadJsonFile(path string) []byte {
 	}
 	jsonFile, err := ioutil.ReadFile(path)
 	if err != nil {
-		fmt.Printf("Error while read file %s: %s\n", path, err.Error())
+		pterm.FgRed.Printf("Error while read file %s: %s\n", path, err.Error())
 		os.Exit(1)
 	}
 

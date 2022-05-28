@@ -9,8 +9,8 @@ import (
 	"strconv"
 
 	survey "github.com/AlecAivazis/survey/v2"
-	"github.com/olekukonko/tablewriter"
 	"github.com/pquerna/ffjson/ffjson"
+	"github.com/pterm/pterm"
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -84,7 +84,7 @@ func NewApplier(opts Options) Interface {
 	}
 
 	if err := validate(applier); err != nil {
-		fmt.Printf("%v", err)
+		pterm.FgRed.Printf("%v", err)
 		os.Exit(1)
 	}
 
@@ -209,7 +209,7 @@ func (applier *Applier) Run() (err error) {
 			switch choose {
 			case SurveyShowResults:
 				for i, pod := range result.UnscheduledPods {
-					fmt.Printf("%4d %s/%s: %s\n", i, pod.Pod.Namespace, pod.Pod.Name, pod.Reason)
+					pterm.FgLightWhite.Printf("%4d %s/%s: %s\n", i, pod.Pod.Namespace, pod.Pod.Name, pod.Reason)
 				}
 			case SurveyAddNode:
 				num := 0
@@ -231,7 +231,7 @@ func (applier *Applier) Run() (err error) {
 			if ok, reason, err := satisfyResourceSetting(result.NodeStatus); err != nil {
 				return err
 			} else if !ok {
-				fmt.Println(reason)
+				pterm.FgLightWhite.Println(reason)
 			} else {
 				canBeScheduled = true
 				break
@@ -240,7 +240,7 @@ func (applier *Applier) Run() (err error) {
 	}
 
 	if canBeScheduled {
-		fmt.Println("Simulation success!")
+		pterm.FgGreen.Println("Simulation success!")
 		report(result.NodeStatus, applier.extendedResources, selectedAppNameList)
 	}
 
@@ -314,8 +314,9 @@ func report(nodeStatuses []simulator.NodeStatus, extendedResources []string, app
 }
 
 func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []string) {
-	fmt.Println("Node Info")
-	nodeTable := tablewriter.NewWriter(os.Stdout)
+	pterm.FgYellow.Println("Node Info")
+	clusterTable := pterm.DefaultTable.WithHasHeader()
+	var clusterTableData [][]string
 	nodeTableHeader := []string{
 		"Node",
 		"CPU Allocatable",
@@ -333,7 +334,7 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 		"Pod Count",
 		"New Node",
 	}...)
-	nodeTable.SetHeader(nodeTableHeader)
+	clusterTableData = append(clusterTableData, nodeTableHeader)
 
 	nodeReq := make(map[string]map[corev1.ResourceName]resource.Quantity, len(nodeStatuses))
 	for _, status := range nodeStatuses {
@@ -387,20 +388,19 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 			fmt.Sprintf("%d", len(status.Pods)),
 			newNode,
 		}...)
-		nodeTable.Append(data)
+		clusterTableData = append(clusterTableData, data)
 	}
-	nodeTable.SetRowLine(true)
-	nodeTable.SetAlignment(tablewriter.ALIGN_LEFT)
-	nodeTable.Render() // Send output
-	fmt.Println()
+	clusterTable.WithData(clusterTableData).Render()
+	pterm.FgYellow.Println()
 
 	// report extended resource info (e.g., node storage, GPU)
 	if len(extendedResources) != 0 {
-		fmt.Println("Extended Resource Info")
+		pterm.FgYellow.Println("Extended Resource Info")
 		if containLocalStorage(extendedResources) {
-			fmt.Println("Node Local Storage")
-			nodeStorageTable := tablewriter.NewWriter(os.Stdout)
-			nodeStorageTable.SetHeader([]string{
+			pterm.FgYellow.Println("Node Local Storage")
+			nodeStorageTable := pterm.DefaultTable.WithHasHeader()
+			var nodeStorageTableData [][]string
+			nodeStorageTableData = append(nodeStorageTableData, []string{
 				"Node",
 				"Storage Kind",
 				"Storage Name",
@@ -425,7 +425,7 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 							capacity.String(),
 							fmt.Sprintf("%s(%d%%)", request.String(), int64(float64(vg.Requested)/float64(vg.Capacity)*100)),
 						}
-						nodeStorageTable.Append(storageData)
+						nodeStorageTableData = append(nodeStorageTableData, storageData)
 					}
 
 					for _, device := range nodeStorage.Devices {
@@ -441,20 +441,19 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 							capacity.String(),
 							used,
 						}
-						nodeStorageTable.Append(storageData)
+						nodeStorageTableData = append(nodeStorageTableData, storageData)
 					}
 				}
 			}
-			nodeStorageTable.SetAutoMergeCellsByColumnIndex([]int{0})
-			nodeStorageTable.SetRowLine(true)
-			nodeStorageTable.SetAlignment(tablewriter.ALIGN_LEFT)
-			nodeStorageTable.Render() // Send output
+			// Send output
+			nodeStorageTable.WithData(nodeStorageTableData).Render()
 		}
 		if containGpu(extendedResources) {
 			var podList []*corev1.Pod
-			fmt.Println("GPU Node Resource")
-			nodeGpuTable := tablewriter.NewWriter(os.Stdout)
-			nodeGpuTable.SetHeader([]string{"Node", "GPU ID", "GPU Request/Capacity", "Pod List"})
+			pterm.FgYellow.Println("GPU Node Resource")
+			nodeGpuTable := pterm.DefaultTable.WithHasHeader()
+			var nodeGpuTableData [][]string
+			nodeGpuTableData = append(nodeGpuTableData, []string{"Node", "GPU ID", "GPU Request/Capacity", "Pod List"})
 			for _, status := range nodeStatuses {
 				node := status.Node
 				podList = append(podList, status.Pods...)
@@ -473,7 +472,7 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 					gpuReqCapFraction := float64(nodeGpuMemReq.Value()) / float64(nodeGpuInfo.GpuTotalMemory.Value()) * 100
 					gpuReqCapStr := fmt.Sprintf("%s/%s(%d%%)", nodeGpuMemReq.String(), nodeGpuInfo.GpuTotalMemory.String(), int(gpuReqCapFraction))
 					nodeOutputLine := []string{fmt.Sprintf("%s (%s)", node.Name, nodeGpuInfo.GpuModel), fmt.Sprintf("%d GPUs", nodeGpuInfo.GpuCount), gpuReqCapStr, fmt.Sprintf("%d Pods", nodeGpuInfo.NumPods)}
-					nodeGpuTable.Append(nodeOutputLine)
+					nodeGpuTableData = append(nodeGpuTableData, nodeOutputLine)
 
 					for idx := 0; idx < len(nodeGpuInfo.DevsBrief); idx += 1 {
 						if deviceInfoBrief, ok := nodeGpuInfo.DevsBrief[idx]; ok {
@@ -485,19 +484,18 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 							devReqCapFraction := float64(devUsedGpuMem.Value()) / float64(devTotalGpuMem.Value()) * 100
 							devReqCapStr := fmt.Sprintf("%s/%s(%d%%)", devUsedGpuMem.String(), devTotalGpuMem.String(), int(devReqCapFraction))
 							nodeOutputLineDev := []string{fmt.Sprintf("%s (%s)", node.Name, nodeGpuInfo.GpuModel), fmt.Sprintf("%d", idx), devReqCapStr, fmt.Sprintf("%s", deviceInfoBrief.PodList)}
-							nodeGpuTable.Append(nodeOutputLineDev)
+							nodeGpuTableData = append(nodeGpuTableData, nodeOutputLineDev)
 						}
 					}
 				}
 			}
-			nodeGpuTable.SetAutoMergeCellsByColumnIndex([]int{0})
-			nodeGpuTable.SetRowLine(true)
-			nodeGpuTable.SetAlignment(tablewriter.ALIGN_LEFT)
-			nodeGpuTable.Render() // Send output
+			// Send output
+			nodeGpuTable.WithData(nodeGpuTableData).Render()
 
-			fmt.Println("\nPod -> Node Map")
-			podGpuTable := tablewriter.NewWriter(os.Stdout)
-			podGpuTable.SetHeader([]string{"Pod", "CPU Req", "Mem Req", "GPU Req", "Host Node", "GPU IDX"})
+			pterm.FgYellow.Println("\nPod -> Node Map")
+			podGpuTable := pterm.DefaultTable.WithHasHeader()
+			var podGpuTableData [][]string
+			podGpuTableData = append(podGpuTableData, []string{"Pod", "CPU Req", "Mem Req", "GPU Req", "Host Node", "GPU IDX"})
 			sort.Slice(podList, func(i, j int) bool { return podList[i].Name < podList[j].Name })
 			for _, pod := range podList {
 				req, limit := resourcehelper.PodRequestsAndLimits(pod)
@@ -506,11 +504,10 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 				cpuReq, _, memoryReq, _ := req[corev1.ResourceCPU], limit[corev1.ResourceCPU], req[corev1.ResourceMemory], limit[corev1.ResourceMemory]
 				gpuIndex := gpushareutils.GetGpuIdFromAnnotation(pod)
 				podOutputLine := []string{pod.Name, cpuReq.String(), memoryReq.String(), gpuMemReq.String(), pod.Spec.NodeName, gpuIndex}
-				podGpuTable.Append(podOutputLine)
+				podGpuTableData = append(podGpuTableData, podOutputLine)
 			}
-			podGpuTable.SetRowLine(true)
-			podGpuTable.SetAlignment(tablewriter.ALIGN_LEFT)
-			podGpuTable.Render() // Send output
+			// Send output
+			podGpuTable.WithData(podGpuTableData).Render()
 		}
 	}
 }
@@ -538,7 +535,7 @@ func reportNodeInfo(nodeStatuses []simulator.NodeStatus, extendedResources []str
 	for _, nodeName := range selectedNodeList {
 		selectedNodeMap[nodeName] = struct{}{}
 	}
-	fmt.Println("Pod Info")
+	pterm.FgYellow.Println("Pod Info")
 	header := []string{
 		"Pod",
 		"CPU Requests",
@@ -557,9 +554,10 @@ func reportNodeInfo(nodeStatuses []simulator.NodeStatus, extendedResources []str
 		if _, selected := selectedNodeMap[node.Name]; !selected {
 			continue
 		}
-		fmt.Println(status.Node.Name)
-		podTable := tablewriter.NewWriter(os.Stdout)
-		podTable.SetHeader(header)
+		pterm.FgYellow.Println(status.Node.Name)
+		podTable := pterm.DefaultTable.WithHasHeader()
+		var podTableData [][]string
+		podTableData = append(podTableData, header)
 		allocatable := node.Status.Allocatable
 		for _, pod := range status.Pods {
 			if pod.Spec.NodeName != node.Name {
@@ -606,13 +604,10 @@ func reportNodeInfo(nodeStatuses []simulator.NodeStatus, extendedResources []str
 			}
 
 			data = append(data, appname)
-			podTable.Append(data)
+			podTableData = append(podTableData, data)
 		}
-		podTable.SetAutoMergeCellsByColumnIndex([]int{0})
-		podTable.SetRowLine(true)
-		podTable.SetAlignment(tablewriter.ALIGN_LEFT)
-		podTable.Render() // Send output
-		fmt.Println()
+		podTable.WithData(podTableData).Render()
+		pterm.FgYellow.Println()
 	}
 }
 
@@ -635,7 +630,7 @@ func reportAppInfo(nodeStatuses []simulator.NodeStatus, appNameList []string) {
 			log.Fatalf("%v", err)
 		}
 
-		fmt.Println("App Info")
+		pterm.FgYellow.Println("App Info")
 		header := []string{
 			"Pod",
 			"App Name",
@@ -647,8 +642,9 @@ func reportAppInfo(nodeStatuses []simulator.NodeStatus, appNameList []string) {
 		}
 
 		for _, status := range nodeStatuses {
-			podTable := tablewriter.NewWriter(os.Stdout)
-			podTable.SetHeader(header)
+			podTable := pterm.DefaultTable.WithHasHeader()
+			var podTableData [][]string
+			podTableData = append(podTableData, header)
 			for _, pod := range status.Pods {
 				// app name
 				appname := ""
@@ -662,15 +658,12 @@ func reportAppInfo(nodeStatuses []simulator.NodeStatus, appNameList []string) {
 					fmt.Sprintf("%s/%s", pod.Namespace, pod.Name),
 					appname,
 				}
-				podTable.Append(data)
+				podTableData = append(podTableData, data)
 			}
-			podTable.SetAutoMergeCellsByColumnIndex([]int{0})
-			podTable.SetRowLine(true)
-			podTable.SetAlignment(tablewriter.ALIGN_LEFT)
-			if podTable.NumLines() != 0 {
-				fmt.Println(status.Node.Name)
-				podTable.Render() // Send output
-				fmt.Println()
+			if len(podTableData) > 1 {
+				pterm.FgYellow.Println(status.Node.Name)
+				podTable.WithData(podTableData).Render()
+				pterm.FgYellow.Println()
 			}
 		}
 	}

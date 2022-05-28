@@ -1,9 +1,9 @@
 package debug
 
 import (
-	"fmt"
 	"os"
 
+	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )
 
@@ -15,7 +15,7 @@ var DebugCmd = &cobra.Command{
 	Short: "debug alpha feature",
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := run(&options); err != nil {
-			fmt.Printf("debug error: %s", err.Error())
+			pterm.FgRed.Printf("debug error: %s", err.Error())
 			os.Exit(1)
 		}
 	},
@@ -24,7 +24,7 @@ var DebugCmd = &cobra.Command{
 func init() {
 	options.AddFlags(DebugCmd.Flags())
 	if err := DebugCmd.MarkFlagRequired("filepath"); err != nil {
-		fmt.Printf("debug init error: %s", err.Error())
+		pterm.FgRed.Printf("debug init error: %s", err.Error())
 		os.Exit(1)
 	}
 }

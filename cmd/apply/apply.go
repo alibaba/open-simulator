@@ -1,10 +1,10 @@
 package apply
 
 import (
-	"fmt"
 	"os"
 
 	applypkg "github.com/alibaba/open-simulator/pkg/apply"
+	"github.com/pterm/pterm"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -17,7 +17,7 @@ var ApplyCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		applier := applypkg.NewApplier(options)
 		if err := applier.Run(); err != nil {
-			fmt.Printf("apply error: %s", err.Error())
+			pterm.FgRed.Printf("apply error: %s", err.Error())
 			os.Exit(1)
 		}
 	},

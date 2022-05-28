@@ -1,8 +1,7 @@
 package version
 
 import (
-	"fmt"
-
+	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +16,7 @@ var VersionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the version of simon",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("Version: %s\n", VERSION)
-		fmt.Printf("Commit: %s\n", COMMITID)
+		pterm.FgLightWhite.Printf("Version: %s\n", VERSION)
+		pterm.FgLightWhite.Printf("Commit: %s\n", COMMITID)
 	},
 }
