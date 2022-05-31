@@ -182,7 +182,6 @@ func (sim *Simulator) ScheduleApp(app AppResource) (*SimulateResult, error) {
 	tolerationPriority := algo.NewTolerationQueue(appPods)
 	sort.Sort(tolerationPriority)
 
-	pterm.FgYellow.Printf("%d pod(s) in app %s\n", len(appPods), app.Name)
 	failedPod, err := sim.schedulePods(appPods)
 	if err != nil {
 		return nil, err
@@ -226,9 +225,7 @@ func (sim *Simulator) runScheduler() {
 	sim.informerFactory.WaitForCacheSync(sim.ctx.Done())
 
 	// Step 2: run scheduler
-	go func() {
-		sim.scheduler.Run(sim.ctx)
-	}()
+	go sim.scheduler.Run(sim.ctx)
 }
 
 // Run starts to schedule pods
