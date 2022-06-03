@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 
+	"github.com/pterm/pterm"
 	log "github.com/sirupsen/logrus"
 	apps "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -73,64 +75,147 @@ func GenerateValidPodsFromAppResources(client externalclientset.Interface, appna
 }
 
 // GetValidPodExcludeDaemonSet gets valid pod by resources exclude DaemonSet that needs to be handled specially
+const RoutinePodNum = 100
+
 func GetValidPodExcludeDaemonSet(resources ResourceTypes) ([]*corev1.Pod, error) {
 	pods := make([]*corev1.Pod, 0)
-	//get valid pods by pods
-	for _, item := range resources.Pods {
-		validPod, err := utils.MakeValidPodByPod(item)
-		if err != nil {
-			return nil, err
+	var wg sync.WaitGroup
+	mu := &sync.Mutex{}
+	if len(resources.Pods) > 0 {
+		handlePods := func(tmpPods []*corev1.Pod) {
+			tmpValidPods := make([]*corev1.Pod, 0)
+			for _, pod := range tmpPods {
+				validPod, err := utils.MakeValidPodByPod(pod)
+				if err != nil {
+					return
+				}
+				tmpValidPods = append(tmpValidPods, validPod)
+			}
+			mu.Lock()
+			pods = append(pods, tmpValidPods...)
+			mu.Unlock()
+			wg.Done()
 		}
-		pods = append(pods, validPod)
+		var start, end int
+		routineNum := len(resources.Pods) / RoutinePodNum
+		for i := 0; i <= routineNum; i++ {
+			start = i * RoutinePodNum
+			if i != routineNum {
+				end = (i + 1) * RoutinePodNum
+			} else {
+				end = len(resources.Pods)
+			}
+			wg.Add(1)
+			go handlePods(resources.Pods[start:end])
+		}
 	}
 
-	for _, deploy := range resources.Deployments {
-		validPods, err := utils.MakeValidPodsByDeployment(deploy)
-		if err != nil {
-			return nil, err
+	if len(resources.Deployments) > 0 {
+		handleDeployments := func() {
+			tmpValidPods := make([]*corev1.Pod, 0)
+
+			for _, deploy := range resources.Deployments {
+				validPods, err := utils.MakeValidPodsByDeployment(deploy)
+				if err != nil {
+					pterm.FgRed.Printf("fail to make valid pods by deployment %s: %s\n", deploy.Name, err.Error())
+					return
+				}
+				tmpValidPods = append(tmpValidPods, validPods...)
+			}
+			mu.Lock()
+			pods = append(pods, tmpValidPods...)
+			mu.Unlock()
+			wg.Done()
 		}
-		pods = append(pods, validPods...)
+		wg.Add(1)
+		go handleDeployments()
 	}
 
-	for _, rs := range resources.ReplicaSets {
-		validPods, err := utils.MakeValidPodsByReplicaSet(rs)
-		if err != nil {
-			return nil, err
+	if len(resources.ReplicaSets) > 0 {
+		handleReplicaSets := func() {
+			tmpValidPods := make([]*corev1.Pod, 0)
+
+			for _, rs := range resources.ReplicaSets {
+				validPods, err := utils.MakeValidPodsByReplicaSet(rs)
+				if err != nil {
+					pterm.FgRed.Printf("fail to make valid pods by replicaset %s: %s\n", rs.Name, err.Error())
+					return
+				}
+				tmpValidPods = append(tmpValidPods, validPods...)
+			}
+			mu.Lock()
+			pods = append(pods, tmpValidPods...)
+			mu.Unlock()
+			wg.Done()
 		}
-		pods = append(pods, validPods...)
+		wg.Add(1)
+		go handleReplicaSets()
 	}
 
-	for _, rc := range resources.ReplicationControllers {
-		validPods, err := utils.MakeValidPodsByReplicationController(rc)
-		if err != nil {
-			return nil, err
+	if len(resources.StatefulSets) > 0 {
+		handleStatefulSets := func() {
+			tmpValidPods := make([]*corev1.Pod, 0)
+
+			for _, sts := range resources.StatefulSets {
+				validPods, err := utils.MakeValidPodsByStatefulSet(sts)
+				if err != nil {
+					pterm.FgRed.Printf("fail to make valid pods by sts %s: %s\n", sts.Name, err.Error())
+					return
+				}
+				tmpValidPods = append(tmpValidPods, validPods...)
+			}
+			mu.Lock()
+			pods = append(pods, tmpValidPods...)
+			mu.Unlock()
+			wg.Done()
 		}
-		pods = append(pods, validPods...)
+		wg.Add(1)
+		go handleStatefulSets()
 	}
 
-	for _, sts := range resources.StatefulSets {
-		validPods, err := utils.MakeValidPodsByStatefulSet(sts)
-		if err != nil {
-			return nil, err
+	if len(resources.Jobs) > 0 {
+		handleJobs := func() {
+			tmpValidPods := make([]*corev1.Pod, 0)
+
+			for _, job := range resources.Jobs {
+				validPods, err := utils.MakeValidPodByJob(job)
+				if err != nil {
+					pterm.FgRed.Printf("fail to make valid pods by job %s: %s\n", job.Name, err.Error())
+					return
+				}
+				tmpValidPods = append(tmpValidPods, validPods...)
+			}
+			mu.Lock()
+			pods = append(pods, tmpValidPods...)
+			mu.Unlock()
+			wg.Done()
 		}
-		pods = append(pods, validPods...)
+		wg.Add(1)
+		go handleJobs()
 	}
 
-	for _, job := range resources.Jobs {
-		validPods, err := utils.MakeValidPodByJob(job)
-		if err != nil {
-			return nil, err
+	if len(resources.CronJobs) > 0 {
+		handleCronJobs := func() {
+			tmpValidPods := make([]*corev1.Pod, 0)
+
+			for _, cronjob := range resources.CronJobs {
+				validPods, err := utils.MakeValidPodByCronJob(cronjob)
+				if err != nil {
+					pterm.FgRed.Printf("fail to make valid pods by cronjob %s: %s\n", cronjob.Name, err.Error())
+					return
+				}
+				tmpValidPods = append(tmpValidPods, validPods...)
+			}
+			mu.Lock()
+			pods = append(pods, tmpValidPods...)
+			mu.Unlock()
+			wg.Done()
 		}
-		pods = append(pods, validPods...)
+		wg.Add(1)
+		go handleCronJobs()
 	}
 
-	for _, cronjob := range resources.CronJobs {
-		validPods, err := utils.MakeValidPodByCronJob(cronjob)
-		if err != nil {
-			return nil, err
-		}
-		pods = append(pods, validPods...)
-	}
+	wg.Wait()
 
 	return pods, nil
 }
@@ -160,8 +245,6 @@ func GetObjectFromYamlContent(ymlStr []string) (ResourceTypes, error) {
 				resources.Services = append(resources.Services, o)
 			case *corev1.PersistentVolumeClaim:
 				resources.PersistentVolumeClaims = append(resources.PersistentVolumeClaims, o)
-			case *corev1.ReplicationController:
-				resources.ReplicationControllers = append(resources.ReplicationControllers, o)
 			case *apps.ReplicaSet:
 				resources.ReplicaSets = append(resources.ReplicaSets, o)
 			case *batchv1.Job:

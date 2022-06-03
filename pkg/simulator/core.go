@@ -1,6 +1,8 @@
 package simulator
 
 import (
+	"time"
+
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
@@ -9,6 +11,8 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 
 	"github.com/alibaba/open-simulator/pkg/utils"
+	"k8s.io/apimachinery/pkg/watch"
+	utiltrace "k8s.io/utils/trace"
 )
 
 type SimulateResult struct {
@@ -32,7 +36,6 @@ type ResourceTypes struct {
 	DaemonSets             []*appsv1.DaemonSet
 	StatefulSets           []*appsv1.StatefulSet
 	Deployments            []*appsv1.Deployment
-	ReplicationControllers []*corev1.ReplicationController
 	ReplicaSets            []*appsv1.ReplicaSet
 	Services               []*corev1.Service
 	PersistentVolumeClaims []*corev1.PersistentVolumeClaim
@@ -62,12 +65,20 @@ type Interface interface {
 // 1. error 不为空表示函数执行失败
 // 2. error 为空表示函数执行成功，通过 SimulateResult 信息获取集群模拟信息。其中 UnscheduledPods 表示无法调度的 Pods，若其为空表示模拟调度成功；NodeStatus 会详细记录每个 Node 上的 Pod 情况。
 func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*SimulateResult, error) {
+	// debug: this is a hack method
+	// todo: must understand why channel is full
+	watch.DefaultChanSize = 1000
+
+	trace := utiltrace.New("Trace Simulate")
+	defer trace.LogIfLong(100 * time.Millisecond)
+
 	// init simulator
 	sim, err := New(opts...)
 	if err != nil {
 		return nil, err
 	}
 	defer sim.Close()
+	trace.Step("Trace Simulate init done")
 
 	cluster.Pods, err = GetValidPodExcludeDaemonSet(cluster)
 	if err != nil {
@@ -80,6 +91,7 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 		}
 		cluster.Pods = append(cluster.Pods, validPods...)
 	}
+	trace.Step("Trace Simulate make valid pod done")
 
 	var failedPods []UnscheduledPod
 	// run cluster
@@ -88,6 +100,7 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 		return nil, err
 	}
 	failedPods = append(failedPods, result.UnscheduledPods...)
+	trace.Step("Trace Simulate run cluster done")
 
 	// schedule pods
 	for _, app := range apps {
@@ -98,6 +111,7 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 		failedPods = append(failedPods, result.UnscheduledPods...)
 	}
 	result.UnscheduledPods = failedPods
+	trace.Step("Trace Simulate schedule app done")
 
 	return result, nil
 }

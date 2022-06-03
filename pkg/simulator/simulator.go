@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/pterm/pterm"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -17,6 +19,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
+	utiltrace "k8s.io/utils/trace"
 
 	"github.com/alibaba/open-simulator/pkg/algo"
 	simonplugin "github.com/alibaba/open-simulator/pkg/simulator/plugin"
@@ -41,6 +44,8 @@ type Simulator struct {
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 
+	writeToFile bool
+
 	status status
 }
 
@@ -52,6 +57,7 @@ type status struct {
 type simulatorOptions struct {
 	kubeconfig      string
 	schedulerConfig string
+	writeToFile     bool
 }
 
 // Option configures a Simulator
@@ -60,6 +66,7 @@ type Option func(*simulatorOptions)
 var defaultSimulatorOptions = simulatorOptions{
 	kubeconfig:      "",
 	schedulerConfig: "",
+	writeToFile:     false,
 }
 
 // New generates all components that will be needed to simulate scheduling and returns a complete simulator
@@ -71,17 +78,17 @@ func New(opts ...Option) (Interface, error) {
 		opt(&options)
 	}
 
-	// Step 2: get scheduler CompletedConfig and set the list of scheduler bind plugins to Simon.
+	// Step 1: get scheduler CompletedConfig and set the list of scheduler bind plugins to Simon.
 	kubeSchedulerConfig, err := GetAndSetSchedulerConfig(options.schedulerConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 3: create fake client
+	// Step 2: create fake client
 	fakeClient := fakeclientset.NewSimpleClientset()
 	sharedInformerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
 
-	// Step 4: Create the simulator
+	// Step 3: Create the simulator
 	ctx, cancel := context.WithCancel(context.Background())
 	sim := &Simulator{
 		// externalclient:  kubeClient,
@@ -90,6 +97,7 @@ func New(opts ...Option) (Interface, error) {
 		informerFactory: sharedInformerFactory,
 		ctx:             ctx,
 		cancelFunc:      cancel,
+		writeToFile:     options.writeToFile,
 	}
 
 	// Step 5: add event handler for pods
@@ -163,9 +171,9 @@ func (sim *Simulator) RunCluster(cluster ResourceTypes) (*SimulateResult, error)
 	return sim.syncClusterResourceList(cluster)
 }
 
-func (sim *Simulator) ScheduleApp(apps AppResource) (*SimulateResult, error) {
+func (sim *Simulator) ScheduleApp(app AppResource) (*SimulateResult, error) {
 	// 由 AppResource 生成 Pods
-	appPods, err := GenerateValidPodsFromAppResources(sim.fakeclient, apps.Name, apps.Resource)
+	appPods, err := GenerateValidPodsFromAppResources(sim.fakeclient, app.Name, app.Resource)
 	if err != nil {
 		return nil, err
 	}
@@ -173,6 +181,7 @@ func (sim *Simulator) ScheduleApp(apps AppResource) (*SimulateResult, error) {
 	sort.Sort(affinityPriority)
 	tolerationPriority := algo.NewTolerationQueue(appPods)
 	sort.Sort(tolerationPriority)
+
 	failedPod, err := sim.schedulePods(appPods)
 	if err != nil {
 		return nil, err
@@ -185,19 +194,26 @@ func (sim *Simulator) ScheduleApp(apps AppResource) (*SimulateResult, error) {
 
 func (sim *Simulator) getClusterNodeStatus() []NodeStatus {
 	var nodeStatues []NodeStatus
+	nodeStatusMap := make(map[string]NodeStatus)
 	nodes, _ := sim.fakeclient.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
 	allPods, _ := sim.fakeclient.CoreV1().Pods(corev1.NamespaceAll).List(context.Background(), metav1.ListOptions{})
+
 	for _, node := range nodes.Items {
 		nodeStatus := NodeStatus{}
 		nodeStatus.Node = node.DeepCopy()
 		nodeStatus.Pods = make([]*corev1.Pod, 0)
-		for _, pod := range allPods.Items {
-			if pod.Spec.NodeName != node.Name {
-				continue
-			}
-			nodeStatus.Pods = append(nodeStatus.Pods, pod.DeepCopy())
-		}
-		nodeStatues = append(nodeStatues, nodeStatus)
+		nodeStatusMap[node.Name] = nodeStatus
+	}
+
+	for _, pod := range allPods.Items {
+		nodeStatus := nodeStatusMap[pod.Spec.NodeName]
+		nodeStatus.Pods = append(nodeStatus.Pods, pod.DeepCopy())
+		nodeStatusMap[pod.Spec.NodeName] = nodeStatus
+	}
+
+	for _, node := range nodes.Items {
+		status := nodeStatusMap[node.Name]
+		nodeStatues = append(nodeStatues, status)
 	}
 	return nodeStatues
 }
@@ -209,15 +225,21 @@ func (sim *Simulator) runScheduler() {
 	sim.informerFactory.WaitForCacheSync(sim.ctx.Done())
 
 	// Step 2: run scheduler
-	go func() {
-		sim.scheduler.Run(sim.ctx)
-	}()
+	go sim.scheduler.Run(sim.ctx)
 }
 
 // Run starts to schedule pods
 func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error) {
 	var failedPods []UnscheduledPod
+	var progressBar *pterm.ProgressbarPrinter
+	if !sim.writeToFile {
+		progressBar, _ = pterm.DefaultProgressbar.WithTotal(len(pods)).Start()
+	}
 	for _, pod := range pods {
+		if !sim.writeToFile {
+			// Update the title of the progressbar.
+			progressBar.UpdateTitle(fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+		}
 		if _, err := sim.fakeclient.CoreV1().Pods(pod.Namespace).Create(context.Background(), pod, metav1.CreateOptions{}); err != nil {
 			return nil, fmt.Errorf("%s %s/%s: %s", simontype.CreatePodError, pod.Namespace, pod.Name, err.Error())
 		}
@@ -237,6 +259,9 @@ func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error)
 				Reason: sim.status.stopReason,
 			})
 			sim.status.stopReason = ""
+		}
+		if !sim.writeToFile {
+			progressBar.Increment()
 		}
 	}
 	return failedPods, nil
@@ -283,13 +308,6 @@ func (sim *Simulator) syncClusterResourceList(resourceList ResourceTypes) (*Simu
 		}
 	}
 
-	//sync rc
-	for _, item := range resourceList.ReplicationControllers {
-		if _, err := sim.fakeclient.CoreV1().ReplicationControllers(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
-			return nil, fmt.Errorf("unable to copy RC: %v", err)
-		}
-	}
-
 	//sync deployment
 	for _, item := range resourceList.Deployments {
 		if _, err := sim.fakeclient.AppsV1().Deployments(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
@@ -319,6 +337,7 @@ func (sim *Simulator) syncClusterResourceList(resourceList ResourceTypes) (*Simu
 	}
 
 	// sync pods
+	pterm.FgYellow.Printf("sync %d pod(s) to fake cluster\n", len(resourceList.Pods))
 	failedPods, err := sim.schedulePods(resourceList.Pods)
 	if err != nil {
 		return nil, err
@@ -365,10 +384,24 @@ func WithSchedulerConfig(schedulerConfig string) Option {
 	}
 }
 
+// WithSchedulerConfig sets schedulerConfig for Simulator, the default value is ""
+func WriteToFile(writeToFile bool) Option {
+	return func(o *simulatorOptions) {
+		o.writeToFile = writeToFile
+	}
+}
+
 // CreateClusterResourceFromClient returns a ResourceTypes struct by kube-client that connects a real cluster
-func CreateClusterResourceFromClient(client externalclientset.Interface) (ResourceTypes, error) {
+func CreateClusterResourceFromClient(client externalclientset.Interface, writeToFile bool) (ResourceTypes, error) {
 	var resource ResourceTypes
 	var err error
+	var spinner *pterm.SpinnerPrinter
+	if !writeToFile {
+		spinner, _ = pterm.DefaultSpinner.WithShowTimer().Start("get resource info from kube client")
+	}
+
+	trace := utiltrace.New("Trace CreateClusterResourceFromClient")
+	defer trace.LogIfLong(100 * time.Millisecond)
 	nodeItems, err := client.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return resource, fmt.Errorf("unable to list nodes: %v", err)
@@ -377,9 +410,10 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 		newItem := item
 		resource.Nodes = append(resource.Nodes, &newItem)
 	}
+	trace.Step("CreateClusterResourceFromClient: List Node done")
 
 	// We will regenerate pods of all workloads in the follow-up stage.
-	podItems, err := client.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{FieldSelector: "status.phase=Running"})
+	podItems, err := client.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{FieldSelector: "status.phase=Running", ResourceVersion: "0"})
 	if err != nil {
 		return resource, fmt.Errorf("unable to list pods: %v", err)
 	}
@@ -389,6 +423,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 			resource.Pods = append(resource.Pods, &newItem)
 		}
 	}
+	trace.Step("CreateClusterResourceFromClient: List Pod done")
 
 	pdbItems, err := client.PolicyV1beta1().PodDisruptionBudgets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
@@ -433,6 +468,9 @@ func CreateClusterResourceFromClient(client externalclientset.Interface) (Resour
 	for _, item := range daemonSetItems.Items {
 		newItem := item
 		resource.DaemonSets = append(resource.DaemonSets, &newItem)
+	}
+	if !writeToFile {
+		spinner.Success("get resource info from kube client done!")
 	}
 
 	return resource, nil
