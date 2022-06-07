@@ -10,10 +10,12 @@ simon apply [flags]
 
 ```
       --default-scheduler-config string   path to JSON or YAML file containing scheduler configuration.
+      --extended-resources strings        show extended resources when reporting, e.g. open-local
   -h, --help                              help for apply
   -i, --interactive                       interactive mode
+      --output-file string                save report to output file.
   -f, --simon-config string               path to the cluster kube-config file used to connect cluster, one of both kube-config and cluster-config must exist.
-      --use-greed                         use greedy algorithm when queue pods (default true)
+      --use-greed                         use greedy algorithm when queue pods
 ```
 
 ### Options inherited from parent commands
