@@ -50,12 +50,6 @@ type AppResource struct {
 	Resource ResourceTypes
 }
 
-type Interface interface {
-	RunCluster(cluster ResourceTypes) (*SimulateResult, error)
-	ScheduleApp(AppResource) (*SimulateResult, error)
-	Close()
-}
-
 // Simulate
 // 参数
 // 1. 由使用方自己生成 cluster 和 apps 传参
@@ -73,7 +67,7 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 	defer trace.LogIfLong(100 * time.Millisecond)
 
 	// init simulator
-	sim, err := New(opts...)
+	sim, err := NewSimulator(opts...)
 	if err != nil {
 		return nil, err
 	}

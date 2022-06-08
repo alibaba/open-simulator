@@ -14,7 +14,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	resourcehelper "k8s.io/kubectl/pkg/util/resource"
 	"sigs.k8s.io/yaml"
@@ -205,7 +204,7 @@ func (applier *Applier) Run() (err error) {
 	for {
 		if choose != SurveyShowResults {
 			newClusterResource := clusterResourceCopy
-			nodes, err := newFakeNodes(newNode, newNodeNum)
+			nodes, err := utils.NewFakeNodes(newNode, newNodeNum)
 			if err != nil {
 				return err
 			}
@@ -305,26 +304,6 @@ func validate(applier *Applier) error {
 	}
 
 	return nil
-}
-
-func newFakeNodes(node *corev1.Node, nodeCount int) ([]*corev1.Node, error) {
-	if node == nil && nodeCount != 0 {
-		return nil, fmt.Errorf("new node is nil when adding node to cluster, please check whether newNode in configuration file is empty")
-	}
-	var nodes []*corev1.Node
-	if node != nil {
-		// make fake nodes
-		for i := 0; i < nodeCount; i++ {
-			hostname := fmt.Sprintf("%s-%02d", simontype.NewNodeNamePrefix, i)
-			validNode, err := utils.MakeValidNodeByNode(node, hostname)
-			if err != nil {
-				return nil, err
-			}
-			metav1.SetMetaDataLabel(&validNode.ObjectMeta, simontype.LabelNewNode, "")
-			nodes = append(nodes, validNode.DeepCopy())
-		}
-	}
-	return nodes, nil
 }
 
 // report print out scheduling result of pods

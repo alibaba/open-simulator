@@ -451,6 +451,8 @@ func MakeValidPod(oldPod *corev1.Pod) (*corev1.Pod, error) {
 		}
 	}
 
+	newPod.Status = corev1.PodStatus{}
+
 	// todo: handle pvc
 	if err := ValidatePod(newPod); err != nil {
 		return nil, err
@@ -833,4 +835,33 @@ func GetGpuNodeInfoFromAnnotation(node *corev1.Node) (*gpusharecache.NodeGpuInfo
 	}
 
 	return nodeGpuInfo, nil
+}
+
+func OwnedByDaemonset(refs []metav1.OwnerReference) bool {
+	for _, ref := range refs {
+		if ref.Kind == simontype.DaemonSet {
+			return true
+		}
+	}
+	return false
+}
+
+func NewFakeNodes(node *corev1.Node, nodeCount int) ([]*corev1.Node, error) {
+	if node == nil && nodeCount != 0 {
+		return nil, fmt.Errorf("new node is nil when adding node to cluster, please check whether newNode in configuration file is empty")
+	}
+	var nodes []*corev1.Node
+	if node != nil {
+		// make fake nodes
+		for i := 0; i < nodeCount; i++ {
+			hostname := fmt.Sprintf("%s-%s", simontype.NewNodeNamePrefix, rand.String(5))
+			validNode, err := MakeValidNodeByNode(node, hostname)
+			if err != nil {
+				return nil, err
+			}
+			metav1.SetMetaDataLabel(&validNode.ObjectMeta, simontype.LabelNewNode, "")
+			nodes = append(nodes, validNode.DeepCopy())
+		}
+	}
+	return nodes, nil
 }

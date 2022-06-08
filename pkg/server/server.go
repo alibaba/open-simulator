@@ -1,0 +1,239 @@
+package server
+
+import (
+	"context"
+	"fmt"
+	"io/ioutil"
+	"time"
+
+	"net/http"
+
+	"github.com/alibaba/open-simulator/pkg/simulator"
+	"github.com/alibaba/open-simulator/pkg/utils"
+	"github.com/gin-gonic/gin"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	apimachineryjson "k8s.io/apimachinery/pkg/util/json"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	kubeinformers "k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
+	appslisters "k8s.io/client-go/listers/apps/v1"
+	corelisters "k8s.io/client-go/listers/core/v1"
+	policylisters "k8s.io/client-go/listers/policy/v1beta1"
+	storagelisters "k8s.io/client-go/listers/storage/v1"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog/v2"
+)
+
+type Server struct {
+	nodeLister    corelisters.NodeLister
+	podLister     corelisters.PodLister
+	serviceLister corelisters.ServiceLister
+	pvcLister     corelisters.PersistentVolumeClaimLister
+	dsLister      appslisters.DaemonSetLister
+	pdbLister     policylisters.PodDisruptionBudgetLister
+	scLister      storagelisters.StorageClassLister
+}
+
+type DeployAppRequest struct {
+	Pods         []*corev1.Pod         `json:"pods"`
+	Deployments  []*appsv1.Deployment  `json:"deployments"`
+	DaemonSets   []*appsv1.DaemonSet   `json:"daemonsets"`
+	StatefulSets []*appsv1.StatefulSet `json:"statefulsets"`
+	NewNodes     []*corev1.Node        `json:"newnodes"`
+}
+
+func NewServer(kubeconfig, master string) (*Server, error) {
+	cfg, err := clientcmd.BuildConfigFromFlags(master, kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("Error building kubeconfig: %s", err.Error())
+	}
+	kubeClient, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("Error building kubernetes clientset: %s", err.Error())
+	}
+	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
+	cxt := context.TODO()
+	synced := []cache.InformerSynced{
+		kubeInformerFactory.Core().V1().Nodes().Informer().HasSynced,
+		kubeInformerFactory.Core().V1().Pods().Informer().HasSynced,
+		kubeInformerFactory.Core().V1().Services().Informer().HasSynced,
+		kubeInformerFactory.Core().V1().PersistentVolumeClaims().Informer().HasSynced,
+		kubeInformerFactory.Apps().V1().DaemonSets().Informer().HasSynced,
+		kubeInformerFactory.Policy().V1beta1().PodDisruptionBudgets().Informer().HasSynced,
+		kubeInformerFactory.Storage().V1().StorageClasses().Informer().HasSynced,
+	}
+	kubeInformerFactory.Start(cxt.Done())
+	if !cache.WaitForCacheSync(cxt.Done(), synced...) {
+		return nil, fmt.Errorf("timed out waiting for resource cache to sync")
+	}
+
+	return &Server{
+		nodeLister:    kubeInformerFactory.Core().V1().Nodes().Lister(),
+		podLister:     kubeInformerFactory.Core().V1().Pods().Lister(),
+		serviceLister: kubeInformerFactory.Core().V1().Services().Lister(),
+		pvcLister:     kubeInformerFactory.Core().V1().PersistentVolumeClaims().Lister(),
+		dsLister:      kubeInformerFactory.Apps().V1().DaemonSets().Lister(),
+		pdbLister:     kubeInformerFactory.Policy().V1beta1().PodDisruptionBudgets().Lister(),
+		scLister:      kubeInformerFactory.Storage().V1().StorageClasses().Lister(),
+	}, nil
+}
+
+func (server *Server) Start() {
+	r := server.setupRouter()
+
+	// listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
+	if err := r.Run(); err != nil {
+		panic(err)
+	}
+}
+
+func (server *Server) setupRouter() *gin.Engine {
+	defer utilruntime.HandleCrash()
+	r := gin.Default()
+
+	// check if server is healthy
+	r.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"message": "ok",
+		})
+	})
+
+	// deloy apps
+	r.POST("api/deploy-apps", func(c *gin.Context) {
+		// unmarshal
+		req := &DeployAppRequest{}
+		reqData, err := ioutil.ReadAll(c.Request.Body)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{})
+		}
+		if err := apimachineryjson.Unmarshal(reqData, req); err != nil {
+			klog.Errorf("fail to unmarshal content: %s\n", err.Error())
+			c.JSON(http.StatusBadRequest, gin.H{})
+		}
+
+		// get current cluster resources
+		ClusterResource, err := server.getCurrentClusterResource()
+		if err != nil {
+			klog.Errorf("fail to get current cluster resources: %s", err.Error())
+			return
+		}
+		for _, newNode := range req.NewNodes {
+			node, err := utils.NewFakeNodes(newNode, 1)
+			if err != nil {
+				klog.Errorf("fail to create a new fake node: %s", err.Error())
+			}
+			ClusterResource.Nodes = append(ClusterResource.Nodes, node[0])
+		}
+
+		// app resources
+		AppResources := []simulator.AppResource{
+			{
+				Name: "test",
+				Resource: simulator.ResourceTypes{
+					Pods:         req.Pods,
+					Deployments:  req.Deployments,
+					StatefulSets: req.StatefulSets,
+					DaemonSets:   req.DaemonSets,
+				},
+			},
+		}
+		pendingPods, err := server.getPendingPods()
+		if err != nil {
+			klog.Errorf("fail to get pending pods: %s", err.Error())
+			return
+		}
+		AppResources[0].Resource.Pods = append(AppResources[0].Resource.Pods, pendingPods...)
+
+		// simulate
+		result, err := simulator.Simulate(ClusterResource, AppResources)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, err.Error())
+		}
+
+		c.JSON(http.StatusOK, result)
+	})
+
+	return r
+}
+
+func (server *Server) getPendingPods() ([]*corev1.Pod, error) {
+	pendingPods := []*corev1.Pod{}
+	pods, err := server.podLister.List(labels.Everything())
+	if err != nil {
+		return nil, fmt.Errorf("unable to list pods: %v", err)
+	}
+	for _, item := range pods {
+		if !utils.OwnedByDaemonset(item.OwnerReferences) && item.DeletionTimestamp == nil && item.Status.Phase == corev1.PodPending {
+			pendingPods = append(pendingPods, item.DeepCopy())
+		}
+	}
+	return pendingPods, nil
+}
+
+func (server *Server) getCurrentClusterResource() (simulator.ResourceTypes, error) {
+	var resource simulator.ResourceTypes
+	var err error
+	nodes, err := server.nodeLister.List(labels.Everything())
+	if err != nil {
+		return resource, fmt.Errorf("unable to list nodes: %v", err)
+	}
+	for _, item := range nodes {
+		resource.Nodes = append(resource.Nodes, item.DeepCopy())
+	}
+
+	// We will regenerate pods of all workloads in the follow-up stage.
+	pods, err := server.podLister.List(labels.Everything())
+	if err != nil {
+		return resource, fmt.Errorf("unable to list pods: %v", err)
+	}
+	for _, item := range pods {
+		if !utils.OwnedByDaemonset(item.OwnerReferences) && item.DeletionTimestamp == nil && (item.Status.Phase == corev1.PodRunning) {
+			resource.Pods = append(resource.Pods, item.DeepCopy())
+		}
+	}
+
+	pdbs, err := server.pdbLister.List(labels.Everything())
+	if err != nil {
+		return resource, fmt.Errorf("unable to list PDBs: %v", err)
+	}
+	for _, item := range pdbs {
+		resource.PodDisruptionBudgets = append(resource.PodDisruptionBudgets, item.DeepCopy())
+	}
+
+	services, err := server.serviceLister.List(labels.Everything())
+	if err != nil {
+		return resource, fmt.Errorf("unable to list services: %v", err)
+	}
+	for _, item := range services {
+		resource.Services = append(resource.Services, item.DeepCopy())
+	}
+
+	storageClasses, err := server.scLister.List(labels.Everything())
+	if err != nil {
+		return resource, fmt.Errorf("unable to list storage classes: %v", err)
+	}
+	for _, item := range storageClasses {
+		resource.StorageClasss = append(resource.StorageClasss, item.DeepCopy())
+	}
+
+	pvcs, err := server.pvcLister.List(labels.Everything())
+	if err != nil {
+		return resource, fmt.Errorf("unable to list pvcs: %v", err)
+	}
+	for _, item := range pvcs {
+		resource.PersistentVolumeClaims = append(resource.PersistentVolumeClaims, item.DeepCopy())
+	}
+
+	daemonSets, err := server.dsLister.List(labels.Everything())
+	if err != nil {
+		return resource, fmt.Errorf("unable to list daemon sets: %v", err)
+	}
+	for _, item := range daemonSets {
+		resource.DaemonSets = append(resource.DaemonSets, item.DeepCopy())
+	}
+
+	return resource, nil
+}

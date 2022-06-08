@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: busybox-sts
+  name: busybox-sts-new
   namespace: simple
 spec:
   selector:
