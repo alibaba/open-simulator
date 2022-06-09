@@ -69,8 +69,8 @@ var defaultSimulatorOptions = simulatorOptions{
 	writeToFile:     false,
 }
 
-// New generates all components that will be needed to simulate scheduling and returns a complete simulator
-func New(opts ...Option) (Interface, error) {
+// NewSimulator generates all components that will be needed to simulate scheduling and returns a complete simulator
+func NewSimulator(opts ...Option) (*Simulator, error) {
 	var err error
 	// Step 0: configures a Simulator by opts
 	options := defaultSimulatorOptions
@@ -413,12 +413,13 @@ func CreateClusterResourceFromClient(client externalclientset.Interface, writeTo
 	trace.Step("CreateClusterResourceFromClient: List Node done")
 
 	// We will regenerate pods of all workloads in the follow-up stage.
-	podItems, err := client.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{FieldSelector: "status.phase=Running", ResourceVersion: "0"})
+	podItems, err := client.CoreV1().Pods(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{ResourceVersion: "0"})
 	if err != nil {
 		return resource, fmt.Errorf("unable to list pods: %v", err)
 	}
 	for _, item := range podItems.Items {
-		if !ownedByDaemonset(item.OwnerReferences) && item.DeletionTimestamp == nil {
+		// todo: pending pods
+		if !utils.OwnedByDaemonset(item.OwnerReferences) && item.DeletionTimestamp == nil && item.Status.Phase == corev1.PodRunning {
 			newItem := item
 			resource.Pods = append(resource.Pods, &newItem)
 		}
@@ -492,13 +493,4 @@ func CreateClusterResourceFromClusterConfig(path string) (ResourceTypes, error) 
 	MatchAndSetLocalStorageAnnotationOnNode(resource.Nodes, path)
 
 	return resource, nil
-}
-
-func ownedByDaemonset(refs []metav1.OwnerReference) bool {
-	for _, ref := range refs {
-		if ref.Kind == simontype.DaemonSet {
-			return true
-		}
-	}
-	return false
 }
