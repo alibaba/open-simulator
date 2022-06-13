@@ -12,8 +12,10 @@ import (
 	"github.com/alibaba/open-simulator/pkg/utils"
 	"github.com/gin-gonic/gin"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	apimachineryjson "k8s.io/apimachinery/pkg/util/json"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	kubeinformers "k8s.io/client-go/informers"
@@ -24,7 +26,6 @@ import (
 	storagelisters "k8s.io/client-go/listers/storage/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/klog/v2"
 )
 
 type Server struct {
@@ -33,16 +34,36 @@ type Server struct {
 	serviceLister corelisters.ServiceLister
 	pvcLister     corelisters.PersistentVolumeClaimLister
 	dsLister      appslisters.DaemonSetLister
+	rsLister      appslisters.ReplicaSetLister
+	stsLister     appslisters.StatefulSetLister
 	pdbLister     policylisters.PodDisruptionBudgetLister
 	scLister      storagelisters.StorageClassLister
 }
 
 type DeployAppRequest struct {
-	Pods         []*corev1.Pod         `json:"pods"`
-	Deployments  []*appsv1.Deployment  `json:"deployments"`
-	DaemonSets   []*appsv1.DaemonSet   `json:"daemonsets"`
+	// 待模拟调度的 Pod 信息
+	Pods []*corev1.Pod `json:"pods"`
+	// 待模拟调度的 Deployment 信息
+	Deployments []*appsv1.Deployment `json:"deployments"`
+	// 待模拟调度的 DaemonSet 信息
+	DaemonSets []*appsv1.DaemonSet `json:"daemonsets"`
+	// 待模拟调度的 StatefulSet 信息
 	StatefulSets []*appsv1.StatefulSet `json:"statefulsets"`
-	NewNodes     []*corev1.Node        `json:"newnodes"`
+	// 待模拟调度的 Job 信息
+	Jobs []*batchv1.Job
+	// 添加的虚拟节点
+	NewNodes []*corev1.Node `json:"newnodes"`
+}
+
+type ScaleAppRequest struct {
+	// 待扩容的 Deployment 信息
+	Deployments []*appsv1.Deployment `json:"deployments"`
+	// 待扩容的 DaemonSet 信息
+	DaemonSets []*appsv1.DaemonSet `json:"daemonsets"`
+	// 待扩容的 StatefulSet 信息
+	StatefulSets []*appsv1.StatefulSet `json:"statefulsets"`
+	// 添加的虚拟节点
+	NewNodes []*corev1.Node `json:"newnodes"`
 }
 
 func NewServer(kubeconfig, master string) (*Server, error) {
@@ -62,6 +83,8 @@ func NewServer(kubeconfig, master string) (*Server, error) {
 		kubeInformerFactory.Core().V1().Services().Informer().HasSynced,
 		kubeInformerFactory.Core().V1().PersistentVolumeClaims().Informer().HasSynced,
 		kubeInformerFactory.Apps().V1().DaemonSets().Informer().HasSynced,
+		kubeInformerFactory.Apps().V1().StatefulSets().Informer().HasSynced,
+		kubeInformerFactory.Apps().V1().ReplicaSets().Informer().HasSynced,
 		kubeInformerFactory.Policy().V1beta1().PodDisruptionBudgets().Informer().HasSynced,
 		kubeInformerFactory.Storage().V1().StorageClasses().Informer().HasSynced,
 	}
@@ -76,6 +99,8 @@ func NewServer(kubeconfig, master string) (*Server, error) {
 		serviceLister: kubeInformerFactory.Core().V1().Services().Lister(),
 		pvcLister:     kubeInformerFactory.Core().V1().PersistentVolumeClaims().Lister(),
 		dsLister:      kubeInformerFactory.Apps().V1().DaemonSets().Lister(),
+		stsLister:     kubeInformerFactory.Apps().V1().StatefulSets().Lister(),
+		rsLister:      kubeInformerFactory.Apps().V1().ReplicaSets().Lister(),
 		pdbLister:     kubeInformerFactory.Policy().V1beta1().PodDisruptionBudgets().Lister(),
 		scLister:      kubeInformerFactory.Storage().V1().StorageClasses().Lister(),
 	}, nil
@@ -107,23 +132,25 @@ func (server *Server) setupRouter() *gin.Engine {
 		req := &DeployAppRequest{}
 		reqData, err := ioutil.ReadAll(c.Request.Body)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{})
+			c.JSON(http.StatusBadRequest, err.Error())
+			return
 		}
 		if err := apimachineryjson.Unmarshal(reqData, req); err != nil {
-			klog.Errorf("fail to unmarshal content: %s\n", err.Error())
-			c.JSON(http.StatusBadRequest, gin.H{})
+			c.JSON(http.StatusBadRequest, fmt.Sprintf("fail to unmarshal content: %s\n", err.Error()))
+			return
 		}
 
 		// get current cluster resources
 		ClusterResource, err := server.getCurrentClusterResource()
 		if err != nil {
-			klog.Errorf("fail to get current cluster resources: %s", err.Error())
+			c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to get current cluster resources: %s", err.Error()))
 			return
 		}
 		for _, newNode := range req.NewNodes {
 			node, err := utils.NewFakeNodes(newNode, 1)
 			if err != nil {
-				klog.Errorf("fail to create a new fake node: %s", err.Error())
+				c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to create a new fake node: %s", err.Error()))
+				return
 			}
 			ClusterResource.Nodes = append(ClusterResource.Nodes, node[0])
 		}
@@ -137,12 +164,13 @@ func (server *Server) setupRouter() *gin.Engine {
 					Deployments:  req.Deployments,
 					StatefulSets: req.StatefulSets,
 					DaemonSets:   req.DaemonSets,
+					Jobs:         req.Jobs,
 				},
 			},
 		}
 		pendingPods, err := server.getPendingPods()
 		if err != nil {
-			klog.Errorf("fail to get pending pods: %s", err.Error())
+			c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to get pending pods: %s", err.Error()))
 			return
 		}
 		AppResources[0].Resource.Pods = append(AppResources[0].Resource.Pods, pendingPods...)
@@ -151,6 +179,83 @@ func (server *Server) setupRouter() *gin.Engine {
 		result, err := simulator.Simulate(ClusterResource, AppResources)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		c.JSON(http.StatusOK, result)
+	})
+
+	// scale apps
+	r.POST("api/scale-apps", func(c *gin.Context) {
+		// unmarshal
+		req := &ScaleAppRequest{}
+		reqData, err := ioutil.ReadAll(c.Request.Body)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := apimachineryjson.Unmarshal(reqData, req); err != nil {
+			c.JSON(http.StatusBadRequest, fmt.Sprintf("fail to unmarshal content: %s\n", err.Error()))
+			return
+		}
+
+		// get current cluster resources
+		ClusterResource, err := server.getCurrentClusterResource()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to get current cluster resources: %s", err.Error()))
+			return
+		}
+		for _, newNode := range req.NewNodes {
+			node, err := utils.NewFakeNodes(newNode, 1)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to create a new fake node: %s", err.Error()))
+				return
+			}
+			ClusterResource.Nodes = append(ClusterResource.Nodes, node[0])
+		}
+
+		// remove app pods that will be scaled
+		ClusterResource.Pods, err = server.removePodsOfApp(ClusterResource.Pods, req)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, reqDaemonset := range req.DaemonSets {
+			for j, ds := range ClusterResource.DaemonSets {
+				if ds.Name == reqDaemonset.Name && ds.Namespace == reqDaemonset.Namespace {
+					ClusterResource.DaemonSets[j] = reqDaemonset.DeepCopy()
+					break
+				}
+			}
+		}
+
+		// app resources
+		AppResources := []simulator.AppResource{
+			{
+				Name: "test",
+				Resource: simulator.ResourceTypes{
+					Deployments:  req.Deployments,
+					StatefulSets: req.StatefulSets,
+				},
+			},
+		}
+		pendingPods, err := server.getPendingPods()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to get pending pods: %s", err.Error()))
+			return
+		}
+		pendingPods, err = server.removePodsOfApp(pendingPods, req)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, err.Error())
+			return
+		}
+		AppResources[0].Resource.Pods = append(AppResources[0].Resource.Pods, pendingPods...)
+
+		// simulate
+		result, err := simulator.Simulate(ClusterResource, AppResources)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, err.Error())
+			return
 		}
 
 		c.JSON(http.StatusOK, result)
@@ -236,4 +341,46 @@ func (server *Server) getCurrentClusterResource() (simulator.ResourceTypes, erro
 	}
 
 	return resource, nil
+}
+
+func (server *Server) removePodsOfApp(pods []*corev1.Pod, apps *ScaleAppRequest) ([]*corev1.Pod, error) {
+	var selectedObjs []runtime.Object
+	newPods := []*corev1.Pod{}
+
+	// deployment
+	replicasets, err := server.rsLister.List(labels.Everything())
+	if err != nil {
+		return pods, err
+	}
+	for _, deploy := range apps.Deployments {
+		for _, rs := range replicasets {
+			if utils.OwnedByWorkload(rs.OwnerReferences, deploy) {
+				selectedObjs = append(selectedObjs, rs.DeepCopy())
+			}
+		}
+	}
+	// statefulset
+	for _, sts := range apps.StatefulSets {
+		statefulset, err := server.stsLister.StatefulSets(sts.Namespace).Get(sts.Name)
+		if err != nil {
+			return pods, err
+		}
+		selectedObjs = append(selectedObjs, statefulset.DeepCopy())
+	}
+
+	// remove app
+	for _, pod := range pods {
+		owned := false
+		for _, workload := range selectedObjs {
+			if utils.OwnedByWorkload(pod.OwnerReferences, workload) {
+				owned = true
+				break
+			}
+		}
+		if !owned {
+			newPods = append(newPods, pod.DeepCopy())
+		}
+	}
+
+	return newPods, nil
 }

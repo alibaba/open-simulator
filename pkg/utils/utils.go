@@ -27,6 +27,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog/v2"
 	resourcehelper "k8s.io/kubectl/pkg/util/resource"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	apiv1 "k8s.io/kubernetes/pkg/apis/core/v1"
@@ -843,6 +844,51 @@ func OwnedByDaemonset(refs []metav1.OwnerReference) bool {
 			return true
 		}
 	}
+	return false
+}
+
+func OwnedByWorkload(refs []metav1.OwnerReference, workload runtime.Object) bool {
+	switch o := workload.(type) {
+	case *appsv1.Deployment:
+		for _, ref := range refs {
+			if ref.Kind == simontype.Deployment && ref.Name == o.GetName() {
+				return true
+			}
+		}
+	case *appsv1.ReplicaSet:
+		for _, ref := range refs {
+			if ref.Kind == simontype.ReplicaSet && ref.Name == o.GetName() {
+				return true
+			}
+		}
+	case *appsv1.StatefulSet:
+		for _, ref := range refs {
+			if ref.Kind == simontype.StatefulSet && ref.Name == o.GetName() {
+				return true
+			}
+		}
+	case *appsv1.DaemonSet:
+		for _, ref := range refs {
+			if ref.Kind == simontype.DaemonSet && ref.Name == o.GetName() {
+				return true
+			}
+		}
+	case *batchv1.Job:
+		for _, ref := range refs {
+			if ref.Kind == simontype.Job && ref.Name == o.GetName() {
+				return true
+			}
+		}
+	case *batchv1beta1.CronJob:
+		for _, ref := range refs {
+			if ref.Kind == simontype.CronJob && ref.Name == o.GetName() {
+				return true
+			}
+		}
+	default:
+		klog.Errorf("unsupport type %s", workload.GetObjectKind().GroupVersionKind().Kind)
+	}
+
 	return false
 }
 
