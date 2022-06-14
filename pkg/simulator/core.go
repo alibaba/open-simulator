@@ -15,19 +15,24 @@ import (
 	utiltrace "k8s.io/utils/trace"
 )
 
+// 仿真结果
 type SimulateResult struct {
-	UnscheduledPods []UnscheduledPod
-	NodeStatus      []NodeStatus
+	UnscheduledPods []UnscheduledPod `json:"unscheduledPods"`
+	NodeStatus      []NodeStatus     `json:"nodeStatus"`
 }
 
+// 无法成功调度的 Pod 信息
 type UnscheduledPod struct {
-	Pod    *corev1.Pod
-	Reason string
+	Pod    *corev1.Pod `json:"pod"`
+	Reason string      `json:"reason"`
 }
 
+// 已成功调度的 Pod 信息
 type NodeStatus struct {
-	Node *corev1.Node
-	Pods []*corev1.Pod
+	// 节点信息
+	Node *corev1.Node `json:"node"`
+	// 该节点上所有 Pod 信息
+	Pods []*corev1.Pod `json:"pods"`
 }
 
 type ResourceTypes struct {
