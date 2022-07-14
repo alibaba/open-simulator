@@ -417,13 +417,19 @@ func CreateClusterResourceFromClient(client externalclientset.Interface, writeTo
 	if err != nil {
 		return resource, fmt.Errorf("unable to list pods: %v", err)
 	}
+	pendingPods := []*corev1.Pod{}
 	for _, item := range podItems.Items {
-		// todo: pending pods
-		if !utils.OwnedByDaemonset(item.OwnerReferences) && item.DeletionTimestamp == nil && item.Status.Phase == corev1.PodRunning {
-			newItem := item
-			resource.Pods = append(resource.Pods, &newItem)
+		if !utils.OwnedByDaemonset(item.OwnerReferences) && item.DeletionTimestamp == nil {
+			if item.Status.Phase == corev1.PodRunning {
+				newItem := item
+				resource.Pods = append(resource.Pods, &newItem)
+			} else if item.Status.Phase == corev1.PodPending {
+				newItem := item
+				pendingPods = append(pendingPods, &newItem)
+			}
 		}
 	}
+	resource.Pods = append(resource.Pods, pendingPods...)
 	trace.Step("CreateClusterResourceFromClient: List Pod done")
 
 	pdbItems, err := client.PolicyV1beta1().PodDisruptionBudgets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
