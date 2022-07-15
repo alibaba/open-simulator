@@ -58,6 +58,7 @@ type simulatorOptions struct {
 	kubeconfig      string
 	schedulerConfig string
 	writeToFile     bool
+	extraRegistry   frameworkruntime.Registry
 }
 
 // Option configures a Simulator
@@ -67,6 +68,7 @@ var defaultSimulatorOptions = simulatorOptions{
 	kubeconfig:      "",
 	schedulerConfig: "",
 	writeToFile:     false,
+	extraRegistry:   make(map[string]frameworkruntime.PluginFactory),
 }
 
 // NewSimulator generates all components that will be needed to simulate scheduling and returns a complete simulator
@@ -142,6 +144,9 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 		simontype.OpenGpuSharePluginName: func(configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
 			return simonplugin.NewGpuSharePlugin(fakeClient, configuration, f)
 		},
+	}
+	for name, plugin := range options.extraRegistry {
+		bindRegistry[name] = plugin
 	}
 	sim.scheduler, err = scheduler.New(
 		sim.fakeclient,
@@ -384,7 +389,12 @@ func WithSchedulerConfig(schedulerConfig string) Option {
 	}
 }
 
-// WithSchedulerConfig sets schedulerConfig for Simulator, the default value is ""
+func WithExtraRegistry(extraRegistry frameworkruntime.Registry) Option {
+	return func(o *simulatorOptions) {
+		o.extraRegistry = extraRegistry
+	}
+}
+
 func WriteToFile(writeToFile bool) Option {
 	return func(o *simulatorOptions) {
 		o.writeToFile = writeToFile
