@@ -55,9 +55,9 @@ type status struct {
 	stopReason string
 }
 
-type PatchPod = func(pod *corev1.Pod, client externalclientset.Interface) error
+type PatchPodFunc = func(pod *corev1.Pod, client externalclientset.Interface) error
 
-type PatchPodFuncMap map[string]PatchPod
+type PatchPodFuncMap map[string]PatchPodFunc
 
 type simulatorOptions struct {
 	kubeconfig      string
@@ -65,6 +65,7 @@ type simulatorOptions struct {
 	writeToFile     bool
 	extraRegistry   frameworkruntime.Registry
 	patchPodFuncMap PatchPodFuncMap
+	extraConfigMaps []*corev1.ConfigMap
 }
 
 // Option configures a Simulator
@@ -75,7 +76,8 @@ var defaultSimulatorOptions = simulatorOptions{
 	schedulerConfig: "",
 	writeToFile:     false,
 	extraRegistry:   make(map[string]frameworkruntime.PluginFactory),
-	patchPodFuncMap: make(map[string]PatchPod),
+	patchPodFuncMap: make(map[string]PatchPodFunc),
+	extraConfigMaps: make([]*corev1.ConfigMap, 0),
 }
 
 // NewSimulator generates all components that will be needed to simulate scheduling and returns a complete simulator
@@ -163,6 +165,11 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 	}
 	for name, plugin := range options.extraRegistry {
 		bindRegistry[name] = plugin
+	}
+	for _, cm := range options.extraConfigMaps {
+		if _, err = sim.fakeclient.CoreV1().ConfigMaps(cm.Namespace).Create(context.Background(), cm, metav1.CreateOptions{}); err != nil {
+			return nil, err
+		}
 	}
 	sim.scheduler, err = scheduler.New(
 		sim.fakeclient,
@@ -423,6 +430,12 @@ func WithExtraRegistry(extraRegistry frameworkruntime.Registry) Option {
 func WithPatchPodFuncMap(patchPodFuncMap PatchPodFuncMap) Option {
 	return func(o *simulatorOptions) {
 		o.patchPodFuncMap = patchPodFuncMap
+	}
+}
+
+func WithExtraConfigMaps(configmaps []*corev1.ConfigMap) Option {
+	return func(o *simulatorOptions) {
+		o.extraConfigMaps = configmaps
 	}
 }
 
