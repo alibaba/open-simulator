@@ -106,8 +106,8 @@ func NewServer(kubeconfig, master string) (*Server, error) {
 	}, nil
 }
 
-func (server *Server) Start() {
-	r := server.setupRouter()
+func (server *Server) Start(opts ...simulator.Option) {
+	r := server.setupRouter(opts...)
 
 	// listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
 	if err := r.Run(); err != nil {
@@ -115,7 +115,7 @@ func (server *Server) Start() {
 	}
 }
 
-func (server *Server) setupRouter() *gin.Engine {
+func (server *Server) setupRouter(opts ...simulator.Option) *gin.Engine {
 	defer utilruntime.HandleCrash()
 	r := gin.Default()
 
@@ -176,7 +176,7 @@ func (server *Server) setupRouter() *gin.Engine {
 		AppResources[0].Resource.Pods = append(AppResources[0].Resource.Pods, pendingPods...)
 
 		// simulate
-		result, err := simulator.Simulate(ClusterResource, AppResources)
+		result, err := simulator.Simulate(ClusterResource, AppResources, opts...)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, err.Error())
 			return
@@ -252,7 +252,7 @@ func (server *Server) setupRouter() *gin.Engine {
 		AppResources[0].Resource.Pods = append(AppResources[0].Resource.Pods, pendingPods...)
 
 		// simulate
-		result, err := simulator.Simulate(ClusterResource, AppResources)
+		result, err := simulator.Simulate(ClusterResource, AppResources, opts...)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, err.Error())
 			return
