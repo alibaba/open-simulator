@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alibaba/open-simulator/pkg/utils"
 	"github.com/pterm/pterm"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,13 +25,12 @@ import (
 	"github.com/alibaba/open-simulator/pkg/algo"
 	simonplugin "github.com/alibaba/open-simulator/pkg/simulator/plugin"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
-	"github.com/alibaba/open-simulator/pkg/utils"
 )
 
 // Simulator is used to simulate a cluster and pods scheduling
 type Simulator struct {
 	// kube client
-	// externalclient  externalclientset.Interface
+	kubeclient      externalclientset.Interface
 	fakeclient      externalclientset.Interface
 	informerFactory informers.SharedInformerFactory
 
@@ -44,7 +44,8 @@ type Simulator struct {
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 
-	writeToFile bool
+	writeToFile     bool
+	patchPodFuncMap PatchPodFuncMap
 
 	status status
 }
@@ -54,11 +55,17 @@ type status struct {
 	stopReason string
 }
 
+type PatchPodFunc = func(pod *corev1.Pod, client externalclientset.Interface) error
+
+type PatchPodFuncMap map[string]PatchPodFunc
+
 type simulatorOptions struct {
 	kubeconfig      string
 	schedulerConfig string
 	writeToFile     bool
 	extraRegistry   frameworkruntime.Registry
+	patchPodFuncMap PatchPodFuncMap
+	extraConfigMaps []*corev1.ConfigMap
 }
 
 // Option configures a Simulator
@@ -69,6 +76,8 @@ var defaultSimulatorOptions = simulatorOptions{
 	schedulerConfig: "",
 	writeToFile:     false,
 	extraRegistry:   make(map[string]frameworkruntime.PluginFactory),
+	patchPodFuncMap: make(map[string]PatchPodFunc),
+	extraConfigMaps: make([]*corev1.ConfigMap, 0),
 }
 
 // NewSimulator generates all components that will be needed to simulate scheduling and returns a complete simulator
@@ -93,13 +102,22 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 	// Step 3: Create the simulator
 	ctx, cancel := context.WithCancel(context.Background())
 	sim := &Simulator{
-		// externalclient:  kubeClient,
+		kubeclient:      nil,
 		fakeclient:      fakeClient,
 		simulatorStop:   make(chan struct{}),
 		informerFactory: sharedInformerFactory,
 		ctx:             ctx,
 		cancelFunc:      cancel,
 		writeToFile:     options.writeToFile,
+		patchPodFuncMap: options.patchPodFuncMap,
+	}
+
+	// Step 4: kube client
+	if options.kubeconfig != "" {
+		sim.kubeclient, err = utils.CreateKubeClient(options.kubeconfig)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Step 5: add event handler for pods
@@ -148,6 +166,11 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 	for name, plugin := range options.extraRegistry {
 		bindRegistry[name] = plugin
 	}
+	for _, cm := range options.extraConfigMaps {
+		if _, err = sim.fakeclient.CoreV1().ConfigMaps(cm.Namespace).Create(context.Background(), cm, metav1.CreateOptions{}); err != nil {
+			return nil, err
+		}
+	}
 	sim.scheduler, err = scheduler.New(
 		sim.fakeclient,
 		sim.informerFactory,
@@ -186,6 +209,15 @@ func (sim *Simulator) ScheduleApp(app AppResource) (*SimulateResult, error) {
 	sort.Sort(affinityPriority)
 	tolerationPriority := algo.NewTolerationQueue(appPods)
 	sort.Sort(tolerationPriority)
+
+	for i, pod := range appPods {
+		for _, patchPod := range sim.patchPodFuncMap {
+			if err := patchPod(pod, sim.kubeclient); err != nil {
+				return nil, err
+			}
+		}
+		appPods[i] = pod
+	}
 
 	failedPod, err := sim.schedulePods(appPods)
 	if err != nil {
@@ -392,6 +424,18 @@ func WithSchedulerConfig(schedulerConfig string) Option {
 func WithExtraRegistry(extraRegistry frameworkruntime.Registry) Option {
 	return func(o *simulatorOptions) {
 		o.extraRegistry = extraRegistry
+	}
+}
+
+func WithPatchPodFuncMap(patchPodFuncMap PatchPodFuncMap) Option {
+	return func(o *simulatorOptions) {
+		o.patchPodFuncMap = patchPodFuncMap
+	}
+}
+
+func WithExtraConfigMaps(configmaps []*corev1.ConfigMap) Option {
+	return func(o *simulatorOptions) {
+		o.extraConfigMaps = configmaps
 	}
 }
 
