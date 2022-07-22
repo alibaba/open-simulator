@@ -38,6 +38,7 @@ type Server struct {
 	stsLister     appslisters.StatefulSetLister
 	pdbLister     policylisters.PodDisruptionBudgetLister
 	scLister      storagelisters.StorageClassLister
+	cmLister      corelisters.ConfigMapLister
 }
 
 type DeployAppRequest struct {
@@ -82,6 +83,7 @@ func NewServer(kubeconfig, master string) (*Server, error) {
 		kubeInformerFactory.Core().V1().Pods().Informer().HasSynced,
 		kubeInformerFactory.Core().V1().Services().Informer().HasSynced,
 		kubeInformerFactory.Core().V1().PersistentVolumeClaims().Informer().HasSynced,
+		kubeInformerFactory.Core().V1().ConfigMaps().Informer().HasSynced,
 		kubeInformerFactory.Apps().V1().DaemonSets().Informer().HasSynced,
 		kubeInformerFactory.Apps().V1().StatefulSets().Informer().HasSynced,
 		kubeInformerFactory.Apps().V1().ReplicaSets().Informer().HasSynced,
@@ -103,6 +105,7 @@ func NewServer(kubeconfig, master string) (*Server, error) {
 		rsLister:      kubeInformerFactory.Apps().V1().ReplicaSets().Lister(),
 		pdbLister:     kubeInformerFactory.Policy().V1beta1().PodDisruptionBudgets().Lister(),
 		scLister:      kubeInformerFactory.Storage().V1().StorageClasses().Lister(),
+		cmLister:      kubeInformerFactory.Core().V1().ConfigMaps().Lister(),
 	}, nil
 }
 
@@ -338,6 +341,14 @@ func (server *Server) getCurrentClusterResource() (simulator.ResourceTypes, erro
 	}
 	for _, item := range daemonSets {
 		resource.DaemonSets = append(resource.DaemonSets, item.DeepCopy())
+	}
+
+	cms, err := server.cmLister.List(labels.Everything())
+	if err != nil {
+		return resource, fmt.Errorf("unable to list cm: %v", err)
+	}
+	for _, item := range cms {
+		resource.ConfigMaps = append(resource.ConfigMaps, item.DeepCopy())
 	}
 
 	return resource, nil
