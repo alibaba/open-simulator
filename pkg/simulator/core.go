@@ -48,6 +48,7 @@ type ResourceTypes struct {
 	PodDisruptionBudgets   []*policyv1beta1.PodDisruptionBudget
 	Jobs                   []*batchv1.Job
 	CronJobs               []*batchv1beta1.CronJob
+	ConfigMaps             []*corev1.ConfigMap
 }
 
 type AppResource struct {

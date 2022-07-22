@@ -65,7 +65,6 @@ type simulatorOptions struct {
 	writeToFile     bool
 	extraRegistry   frameworkruntime.Registry
 	patchPodFuncMap PatchPodFuncMap
-	extraConfigMaps []*corev1.ConfigMap
 }
 
 // Option configures a Simulator
@@ -77,7 +76,6 @@ var defaultSimulatorOptions = simulatorOptions{
 	writeToFile:     false,
 	extraRegistry:   make(map[string]frameworkruntime.PluginFactory),
 	patchPodFuncMap: make(map[string]PatchPodFunc),
-	extraConfigMaps: make([]*corev1.ConfigMap, 0),
 }
 
 // NewSimulator generates all components that will be needed to simulate scheduling and returns a complete simulator
@@ -165,11 +163,6 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 	}
 	for name, plugin := range options.extraRegistry {
 		bindRegistry[name] = plugin
-	}
-	for _, cm := range options.extraConfigMaps {
-		if _, err = sim.fakeclient.CoreV1().ConfigMaps(cm.Namespace).Create(context.Background(), cm, metav1.CreateOptions{}); err != nil {
-			return nil, err
-		}
 	}
 	sim.scheduler, err = scheduler.New(
 		sim.fakeclient,
@@ -373,6 +366,13 @@ func (sim *Simulator) syncClusterResourceList(resourceList ResourceTypes) (*Simu
 		}
 	}
 
+	// sync cm
+	for _, item := range resourceList.ConfigMaps {
+		if _, err := sim.fakeclient.CoreV1().ConfigMaps(item.Namespace).Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
+			return nil, fmt.Errorf("unable to copy configmap: %v", err)
+		}
+	}
+
 	// sync pods
 	pterm.FgYellow.Printf("sync %d pod(s) to fake cluster\n", len(resourceList.Pods))
 	failedPods, err := sim.schedulePods(resourceList.Pods)
@@ -430,12 +430,6 @@ func WithExtraRegistry(extraRegistry frameworkruntime.Registry) Option {
 func WithPatchPodFuncMap(patchPodFuncMap PatchPodFuncMap) Option {
 	return func(o *simulatorOptions) {
 		o.patchPodFuncMap = patchPodFuncMap
-	}
-}
-
-func WithExtraConfigMaps(configmaps []*corev1.ConfigMap) Option {
-	return func(o *simulatorOptions) {
-		o.extraConfigMaps = configmaps
 	}
 }
 
@@ -520,6 +514,15 @@ func CreateClusterResourceFromClient(client externalclientset.Interface, writeTo
 	for _, item := range pvcItems.Items {
 		newItem := item
 		resource.PersistentVolumeClaims = append(resource.PersistentVolumeClaims, &newItem)
+	}
+
+	cmItems, err := client.CoreV1().ConfigMaps(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return resource, fmt.Errorf("unable to list configmaps: %v", err)
+	}
+	for _, item := range cmItems.Items {
+		newItem := item
+		resource.ConfigMaps = append(resource.ConfigMaps, &newItem)
 	}
 
 	daemonSetItems, err := client.AppsV1().DaemonSets(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
