@@ -900,7 +900,7 @@ func NewFakeNodes(node *corev1.Node, nodeCount int) ([]*corev1.Node, error) {
 	if node != nil {
 		// make fake nodes
 		for i := 0; i < nodeCount; i++ {
-			hostname := fmt.Sprintf("%s-%s", simontype.NewNodeNamePrefix, rand.String(5))
+			hostname := fmt.Sprintf("%s-%04d", simontype.NewNodeNamePrefix, i)
 			validNode, err := MakeValidNodeByNode(node, hostname)
 			if err != nil {
 				return nil, err
