@@ -45,7 +45,7 @@ type Simulator struct {
 	cancelFunc context.CancelFunc
 
 	writeToFile     bool
-	patchPodFuncMap PatchPodFuncMap
+	patchPodFuncMap PatchPodsFuncMap
 
 	status status
 }
@@ -55,16 +55,16 @@ type status struct {
 	stopReason string
 }
 
-type PatchPodFunc = func(pod *corev1.Pod, client externalclientset.Interface) error
+type PatchPodFunc = func(pods []*corev1.Pod, client externalclientset.Interface) error
 
-type PatchPodFuncMap map[string]PatchPodFunc
+type PatchPodsFuncMap map[string]PatchPodFunc
 
 type simulatorOptions struct {
 	kubeconfig      string
 	schedulerConfig string
 	writeToFile     bool
 	extraRegistry   frameworkruntime.Registry
-	patchPodFuncMap PatchPodFuncMap
+	patchPodFuncMap PatchPodsFuncMap
 }
 
 // Option configures a Simulator
@@ -203,13 +203,10 @@ func (sim *Simulator) ScheduleApp(app AppResource) (*SimulateResult, error) {
 	tolerationPriority := algo.NewTolerationQueue(appPods)
 	sort.Sort(tolerationPriority)
 
-	for i, pod := range appPods {
-		for _, patchPod := range sim.patchPodFuncMap {
-			if err := patchPod(pod, sim.kubeclient); err != nil {
-				return nil, err
-			}
+	for _, patchPods := range sim.patchPodFuncMap {
+		if err := patchPods(appPods, sim.kubeclient); err != nil {
+			return nil, err
 		}
-		appPods[i] = pod
 	}
 
 	failedPod, err := sim.schedulePods(appPods)
@@ -427,9 +424,9 @@ func WithExtraRegistry(extraRegistry frameworkruntime.Registry) Option {
 	}
 }
 
-func WithPatchPodFuncMap(patchPodFuncMap PatchPodFuncMap) Option {
+func WithPatchPodsFuncMap(patchPodsFuncMap PatchPodsFuncMap) Option {
 	return func(o *simulatorOptions) {
-		o.patchPodFuncMap = patchPodFuncMap
+		o.patchPodFuncMap = patchPodsFuncMap
 	}
 }
 
