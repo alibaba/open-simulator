@@ -14,7 +14,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/klog/v2"
 	resourcehelper "k8s.io/kubectl/pkg/util/resource"
 	"sigs.k8s.io/yaml"
 
@@ -466,7 +465,7 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 				if nodeGpuInfoStr, exist := node.Annotations[simontype.AnnoNodeGpuShare]; exist {
 					var nodeGpuInfo gpusharecache.NodeGpuInfo
 					if err := ffjson.Unmarshal([]byte(nodeGpuInfoStr), &nodeGpuInfo); err != nil {
-						klog.Errorf("failed to unmarshal storage information of node(%s: %v", node.Name, err)
+						log.Errorf("failed to unmarshal storage information of node(%s: %v", node.Name, err)
 						continue
 					}
 					nodeGpuMemReq := resource.NewQuantity(0, resource.BinarySI)
