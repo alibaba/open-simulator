@@ -897,17 +897,29 @@ func NewFakeNodes(node *corev1.Node, nodeCount int) ([]*corev1.Node, error) {
 		return nil, fmt.Errorf("new node is nil when adding node to cluster, please check whether newNode in configuration file is empty")
 	}
 	var nodes []*corev1.Node
-	if node != nil {
-		// make fake nodes
-		for i := 0; i < nodeCount; i++ {
-			hostname := fmt.Sprintf("%s-%s", simontype.NewNodeNamePrefix, rand.String(5))
-			validNode, err := MakeValidNodeByNode(node, hostname)
-			if err != nil {
-				return nil, err
-			}
-			metav1.SetMetaDataLabel(&validNode.ObjectMeta, simontype.LabelNewNode, "")
-			nodes = append(nodes, validNode.DeepCopy())
+	// make fake nodes
+	for i := 0; i < nodeCount; i++ {
+		hostname := fmt.Sprintf("%s-%s", simontype.NewNodeNamePrefix, rand.String(5))
+		validNode, err := MakeValidNodeByNode(node, hostname)
+		if err != nil {
+			return nil, err
 		}
+		metav1.SetMetaDataLabel(&validNode.ObjectMeta, simontype.LabelNewNode, "")
+		nodes = append(nodes, validNode.DeepCopy())
 	}
 	return nodes, nil
+}
+
+func NewFakeNode(node *corev1.Node) (*corev1.Node, error) {
+	if node == nil {
+		return nil, fmt.Errorf("new node is nil when adding node to cluster, please check whether newNode in configuration file is empty")
+	}
+	// make fake nodes
+	hostname := node.Name
+	validNode, err := MakeValidNodeByNode(node, hostname)
+	if err != nil {
+		return nil, err
+	}
+	metav1.SetMetaDataLabel(&validNode.ObjectMeta, simontype.LabelNewNode, "")
+	return validNode, nil
 }
