@@ -150,12 +150,12 @@ func (server *Server) setupRouter(opts ...simulator.Option) *gin.Engine {
 			return
 		}
 		for _, newNode := range req.NewNodes {
-			node, err := utils.NewFakeNodes(newNode, 1)
+			node, err := utils.NewFakeNode(newNode)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to create a new fake node: %s", err.Error()))
 				return
 			}
-			ClusterResource.Nodes = append(ClusterResource.Nodes, node[0])
+			ClusterResource.Nodes = append(ClusterResource.Nodes, node)
 		}
 
 		// app resources
@@ -209,12 +209,12 @@ func (server *Server) setupRouter(opts ...simulator.Option) *gin.Engine {
 			return
 		}
 		for _, newNode := range req.NewNodes {
-			node, err := utils.NewFakeNodes(newNode, 1)
+			node, err := utils.NewFakeNode(newNode)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to create a new fake node: %s", err.Error()))
 				return
 			}
-			ClusterResource.Nodes = append(ClusterResource.Nodes, node[0])
+			ClusterResource.Nodes = append(ClusterResource.Nodes, node)
 		}
 
 		// remove app pods that will be scaled
