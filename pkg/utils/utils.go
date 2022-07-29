@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
-	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 	resourcehelper "k8s.io/kubectl/pkg/util/resource"
@@ -737,18 +736,7 @@ func GetNodeAllocatable(node *corev1.Node) (resource.Quantity, resource.Quantity
 }
 
 func CreateKubeClient(kubeconfig string) (*clientset.Clientset, error) {
-	if len(kubeconfig) == 0 {
-		return nil, nil
-	}
-
-	var err error
-	var cfg *restclient.Config
-	master, err := GetMasterFromKubeConfig(kubeconfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse kubeclient file: %v ", err)
-	}
-
-	cfg, err = clientcmd.BuildConfigFromFlags(master, kubeconfig)
+	cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("unable to build config: %v ", err)
 	}

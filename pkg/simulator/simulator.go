@@ -9,6 +9,7 @@ import (
 
 	"github.com/alibaba/open-simulator/pkg/utils"
 	"github.com/pterm/pterm"
+	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -111,11 +112,10 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 	}
 
 	// Step 4: kube client
-	if options.kubeconfig != "" {
-		sim.kubeclient, err = utils.CreateKubeClient(options.kubeconfig)
-		if err != nil {
-			return nil, err
-		}
+	sim.kubeclient, err = utils.CreateKubeClient(options.kubeconfig)
+	if err != nil {
+		sim.kubeclient = nil
+		log.Errorf("fail to create kube client: %s", err.Error())
 	}
 
 	// Step 5: add event handler for pods
