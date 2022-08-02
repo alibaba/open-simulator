@@ -389,6 +389,7 @@ func MakeValidPod(oldPod *corev1.Pod) (*corev1.Pod, error) {
 	if newPod.ObjectMeta.Annotations == nil {
 		newPod.ObjectMeta.Annotations = map[string]string{}
 	}
+	newPod.ObjectMeta.ManagedFields = []metav1.ManagedFieldsEntry{}
 
 	// Spec
 	if newPod.Spec.DNSPolicy == "" {
@@ -483,6 +484,7 @@ func MakeValidNodeByNode(node *corev1.Node, nodename string) (*corev1.Node, erro
 	if node.ObjectMeta.Annotations == nil {
 		node.ObjectMeta.Annotations = map[string]string{}
 	}
+	node.ObjectMeta.ManagedFields = []metav1.ManagedFieldsEntry{}
 	if err := ValidateNode(node); err != nil {
 		return nil, err
 	}
