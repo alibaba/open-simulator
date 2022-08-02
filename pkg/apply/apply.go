@@ -102,10 +102,10 @@ func NewApplier(opts Options) Interface {
 
 func (applier *Applier) Run() (err error) {
 	// Step 0: init
-	writeToFile := false
+	disablePTerm := false
 	if applier.outputFile != nil {
 		pterm.SetDefaultOutput(applier.outputFile)
-		writeToFile = true
+		disablePTerm = true
 	}
 
 	// Step 1: convert the cluster files into the kubernetes objects and generate a ResourceTypes struct
@@ -117,7 +117,7 @@ func (applier *Applier) Run() (err error) {
 		if err != nil {
 			return err
 		}
-		if clusterResourceCopy, err = simulator.CreateClusterResourceFromClient(kubeclient, writeToFile); err != nil {
+		if clusterResourceCopy, err = simulator.CreateClusterResourceFromClient(kubeclient, disablePTerm); err != nil {
 			return err
 		}
 	} else {
@@ -208,7 +208,7 @@ func (applier *Applier) Run() (err error) {
 				return err
 			}
 			newClusterResource.Nodes = append(newClusterResource.Nodes, nodes...)
-			result, err = simulator.Simulate(newClusterResource, selectedResourceList, simulator.WriteToFile(writeToFile))
+			result, err = simulator.Simulate(newClusterResource, selectedResourceList, simulator.DisablePTerm(disablePTerm))
 
 			if err != nil {
 				return err
