@@ -52,6 +52,8 @@ type DeployAppRequest struct {
 	StatefulSets []*appsv1.StatefulSet `json:"statefulsets"`
 	// 待模拟调度的 Job 信息
 	Jobs []*batchv1.Job
+	// 应用 ConfigMap 信息
+	ConfigMaps []*corev1.ConfigMap
 	// 添加的虚拟节点
 	NewNodes []*corev1.Node `json:"newnodes"`
 }
@@ -168,6 +170,7 @@ func (server *Server) setupRouter(opts ...simulator.Option) *gin.Engine {
 					StatefulSets: req.StatefulSets,
 					DaemonSets:   req.DaemonSets,
 					Jobs:         req.Jobs,
+					ConfigMaps:   req.ConfigMaps,
 				},
 			},
 		}

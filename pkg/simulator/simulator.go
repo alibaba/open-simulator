@@ -209,6 +209,10 @@ func (sim *Simulator) ScheduleApp(app AppResource) (*SimulateResult, error) {
 		}
 	}
 
+	for _, cm := range app.Resource.ConfigMaps {
+		sim.fakeclient.CoreV1().ConfigMaps(cm.Namespace).Create(context.Background(), cm, metav1.CreateOptions{})
+	}
+
 	failedPod, err := sim.schedulePods(appPods)
 	if err != nil {
 		return nil, err
