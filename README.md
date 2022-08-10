@@ -3,7 +3,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/alibaba/open-simulator)](https://goreportcard.com/report/github.com/alibaba/open-simulator)
 ![workflow build](https://github.com/alibaba/open-simulator/actions/workflows/build.yml/badge.svg)
 
-English | [简体中文](./README_zh.md)
+English | [简体中文](./README_zh.md) | [Korean](./README_ko.md)
 
 ## Introduction
 
