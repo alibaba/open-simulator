@@ -8,11 +8,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/alibaba/open-gpu-share/pkg/utils"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/alibaba/open-simulator/pkg/type/open-gpu-share/utils"
 )
 
 const (

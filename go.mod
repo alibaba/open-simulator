@@ -4,7 +4,6 @@ go 1.15
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.2
-	github.com/alibaba/open-gpu-share v0.1.0
 	github.com/alibaba/open-local v0.2.4-0.20211118031547-952eadbb4a8e
 	github.com/gin-gonic/gin v1.8.1
 	github.com/pquerna/ffjson v0.0.0-20190930134022-aa0246cd15f7
@@ -28,7 +27,6 @@ require (
 )
 
 replace (
-	github.com/alibaba/open-gpu-share => github.com/qzweng/open-gpu-share v0.2.2
 	github.com/googleapis/gnostic => github.com/googleapis/gnostic v0.4.1
 	google.golang.org/grpc => google.golang.org/grpc v1.26.0
 	k8s.io/api => k8s.io/api v0.20.5

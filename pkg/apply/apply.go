@@ -17,13 +17,13 @@ import (
 	resourcehelper "k8s.io/kubectl/pkg/util/resource"
 	"sigs.k8s.io/yaml"
 
-	gpusharecache "github.com/alibaba/open-gpu-share/pkg/cache"
-	gpushareutils "github.com/alibaba/open-gpu-share/pkg/utils"
 	localcache "github.com/alibaba/open-local/pkg/scheduler/algorithm/cache"
 	"github.com/alibaba/open-simulator/pkg/api/v1alpha1"
 	"github.com/alibaba/open-simulator/pkg/chart"
 	"github.com/alibaba/open-simulator/pkg/simulator"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
+	gpusharecache "github.com/alibaba/open-simulator/pkg/type/open-gpu-share/cache"
+	gpushareutils "github.com/alibaba/open-simulator/pkg/type/open-gpu-share/utils"
 	"github.com/alibaba/open-simulator/pkg/utils"
 )
 

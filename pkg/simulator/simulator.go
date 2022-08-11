@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alibaba/open-simulator/pkg/utils"
 	"github.com/pterm/pterm"
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -26,6 +25,7 @@ import (
 	"github.com/alibaba/open-simulator/pkg/algo"
 	simonplugin "github.com/alibaba/open-simulator/pkg/simulator/plugin"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
+	"github.com/alibaba/open-simulator/pkg/utils"
 )
 
 // Simulator is used to simulate a cluster and pods scheduling

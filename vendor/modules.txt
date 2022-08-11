@@ -17,10 +17,6 @@ github.com/NYTimes/gziphandler
 github.com/PuerkitoBio/purell
 # github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578
 github.com/PuerkitoBio/urlesc
-# github.com/alibaba/open-gpu-share v0.1.0 => github.com/qzweng/open-gpu-share v0.2.2
-## explicit
-github.com/alibaba/open-gpu-share/pkg/cache
-github.com/alibaba/open-gpu-share/pkg/utils
 # github.com/alibaba/open-local v0.2.4-0.20211118031547-952eadbb4a8e
 ## explicit
 github.com/alibaba/open-local/pkg
@@ -1122,7 +1118,6 @@ sigs.k8s.io/structured-merge-diff/v4/value
 # sigs.k8s.io/yaml v1.2.0
 ## explicit
 sigs.k8s.io/yaml
-# github.com/alibaba/open-gpu-share => github.com/qzweng/open-gpu-share v0.2.2
 # github.com/googleapis/gnostic => github.com/googleapis/gnostic v0.4.1
 # google.golang.org/grpc => google.golang.org/grpc v1.26.0
 # k8s.io/api => k8s.io/api v0.20.5

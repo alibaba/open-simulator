@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/alibaba/open-simulator/pkg/algo"
-	simontype "github.com/alibaba/open-simulator/pkg/type"
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,6 +12,9 @@ import (
 	externalclientset "k8s.io/client-go/kubernetes"
 	resourcehelper "k8s.io/kubectl/pkg/util/resource"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework"
+
+	"github.com/alibaba/open-simulator/pkg/algo"
+	simontype "github.com/alibaba/open-simulator/pkg/type"
 )
 
 // SimonPlugin is a plugin for scheduling framework

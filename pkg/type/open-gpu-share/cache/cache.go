@@ -3,9 +3,10 @@ package cache
 import (
 	"sync"
 
-	"github.com/alibaba/open-gpu-share/pkg/utils"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/alibaba/open-simulator/pkg/type/open-gpu-share/utils"
 )
 
 type SchedulerCache struct {

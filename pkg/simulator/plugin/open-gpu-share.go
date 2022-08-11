@@ -6,10 +6,6 @@ import (
 	"math"
 	"sync"
 
-	gpusharecache "github.com/alibaba/open-gpu-share/pkg/cache"
-	gpushareutils "github.com/alibaba/open-gpu-share/pkg/utils"
-	"github.com/alibaba/open-simulator/pkg/algo"
-	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/pquerna/ffjson/ffjson"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,6 +14,11 @@ import (
 	"k8s.io/klog/v2"
 	resourcehelper "k8s.io/kubectl/pkg/util/resource"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
+
+	"github.com/alibaba/open-simulator/pkg/algo"
+	simontype "github.com/alibaba/open-simulator/pkg/type"
+	gpusharecache "github.com/alibaba/open-simulator/pkg/type/open-gpu-share/cache"
+	gpushareutils "github.com/alibaba/open-simulator/pkg/type/open-gpu-share/utils"
 )
 
 // GpuSharePlugin is a plugin for scheduling framework

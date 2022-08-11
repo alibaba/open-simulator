@@ -9,8 +9,6 @@ import (
 	localalgorithm "github.com/alibaba/open-local/pkg/scheduler/algorithm"
 	localalgo "github.com/alibaba/open-local/pkg/scheduler/algorithm/algo"
 	localpriorities "github.com/alibaba/open-local/pkg/scheduler/algorithm/priorities"
-	simontype "github.com/alibaba/open-simulator/pkg/type"
-	"github.com/alibaba/open-simulator/pkg/utils"
 	"github.com/pquerna/ffjson/ffjson"
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -20,6 +18,9 @@ import (
 	storagev1informers "k8s.io/client-go/informers/storage/v1"
 	externalclientset "k8s.io/client-go/kubernetes"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework"
+
+	simontype "github.com/alibaba/open-simulator/pkg/type"
+	"github.com/alibaba/open-simulator/pkg/utils"
 )
 
 // LocalPlugin is a plugin for scheduling framework
