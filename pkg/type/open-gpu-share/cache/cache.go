@@ -3,9 +3,10 @@ package cache
 import (
 	"sync"
 
-	"github.com/alibaba/open-gpu-share/pkg/utils"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/alibaba/open-simulator/pkg/type/open-gpu-share/utils"
 )
 
 type SchedulerCache struct {
@@ -93,8 +94,6 @@ func (cache *SchedulerCache) AddOrUpdatePod(pod *v1.Pod) error {
 	if n.addOrUpdatePod(podCopy) {
 		// put it into known pod
 		cache.rememberPod(pod.UID, podCopy)
-	} else {
-		//log.Printf("debug: pod %s in ns %s's gpu id is %d, it's illegal, skip", pod.Name, pod.Namespace, utils.GetGpuIdFromAnnotation(pod))
 	}
 
 	return nil
@@ -107,8 +106,6 @@ func (cache *SchedulerCache) RemovePod(pod *v1.Pod) {
 	n, err := cache.GetGpuNodeInfo(pod.Spec.NodeName)
 	if err == nil {
 		n.removePod(pod)
-	} else {
-		//log.Printf("debug: Failed to get node %s due to %v", pod.Spec.NodeName, err)
 	}
 
 	cache.forgetPod(pod.UID)
@@ -143,8 +140,6 @@ func (cache *SchedulerCache) GetGpuNodeInfo(name string) (*GpuNodeInfo, error) {
 			// fix the scenario that the number of devices changes from 0 to an positive number
 			cache.nodes[name].Reset(node)
 			//log.Printf("info: node: %s, labels from cache after been updated: %v", n.node.Name, n.node.Labels)
-		} else {
-			//log.Printf("info: GetGpuNodeInfo() uses the existing nodeInfo for %s", name)
 		}
 		//log.Printf("debug: node %s with devices %v", name, n.devs)
 	}

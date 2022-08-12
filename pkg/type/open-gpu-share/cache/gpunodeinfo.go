@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"log"
 	"strconv"
-	"strings"
 	"sync"
 
-	"github.com/alibaba/open-gpu-share/pkg/utils"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/alibaba/open-simulator/pkg/type/open-gpu-share/utils"
 )
 
 const (
@@ -299,12 +299,12 @@ func (n *GpuNodeInfo) getAvailableGpus() (availableGpus map[int]int64) {
 			availableGpus[id] = totalGpuMem - usedGpuMem
 		}
 	}
-	//log.Printf("info: available GPU list %v before removing unhealty GPUs", availableGpus)
+	//log.Printf("info: available GPU list %v before removing unhealthy GPUs", availableGpus)
 	//for id, _ := range unhealthyGpus {
-	//	log.Printf("info: delete dev %d from availble GPU list", id)
+	//	log.Printf("info: delete dev %d from available GPU list", id)
 	//	delete(availableGpus, id)
 	//}
-	//log.Printf("info: available GPU list %v after removing unhealty GPUs", availableGpus)
+	//log.Printf("info: available GPU list %v after removing unhealthy GPUs", availableGpus)
 
 	return availableGpus
 }
@@ -327,34 +327,6 @@ func (n *GpuNodeInfo) getAllGpus() (allGpus map[int]int64) {
 	}
 	//log.Printf("info: getAllGpus: %v in node %s, and dev %v", allGpus, n.name, n.devs)
 	return allGpus
-}
-
-// getUnhealthyGpus get the unhealthy GPUs from configmap
-func (n *GpuNodeInfo) getUnhealthyGpus() (unhealthyGpus map[int]bool) {
-	unhealthyGpus = map[int]bool{}
-	name := fmt.Sprintf("unhealthy-gpu-%s", n.GetName())
-	//log.Printf("info: try to find unhealthy node %s", name)
-	cm := getConfigMap(name)
-	if cm == nil {
-		return
-	}
-
-	if devicesStr, found := cm.Data["gpus"]; found {
-		//log.Printf("warn: the unhelathy gpus %s", devicesStr)
-		idsStr := strings.Split(devicesStr, ",")
-		for _, sid := range idsStr {
-			id, err := strconv.Atoi(sid)
-			if err != nil {
-				log.Printf("warn: failed to parse id %s due to %v", sid, err)
-			}
-			unhealthyGpus[id] = true
-		}
-	} else {
-		//log.Println("info: skip, because there are no unhealthy gpus")
-	}
-
-	return
-
 }
 
 //func (n *GpuNodeInfo) PatchNodeAnnotationSpec() ([]byte, error) {

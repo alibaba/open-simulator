@@ -33,10 +33,10 @@ import (
 	"k8s.io/kubernetes/pkg/apis/core/validation"
 	"k8s.io/kubernetes/pkg/controller/daemon"
 
-	gpusharecache "github.com/alibaba/open-gpu-share/pkg/cache"
 	localcache "github.com/alibaba/open-local/pkg/scheduler/algorithm/cache"
 	localutils "github.com/alibaba/open-local/pkg/utils"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
+	gpusharecache "github.com/alibaba/open-simulator/pkg/type/open-gpu-share/cache"
 )
 
 // ParseFilePath converts recursively directory path to a slice of file paths

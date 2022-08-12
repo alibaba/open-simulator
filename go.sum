@@ -764,8 +764,6 @@ github.com/pterm/pterm v0.12.40/go.mod h1:ffwPLwlbXxP+rxT0GsgDTzS3y3rmpAO1NMjUkG
 github.com/pterm/pterm v0.12.41 h1:e2BRfFo1H9nL8GY0S3ImbZqfZ/YimOk9XtkhoobKJVs=
 github.com/pterm/pterm v0.12.41/go.mod h1:LW/G4J2A42XlTaPTAGRPvbBfF4UXvHWhC6SN7ueU4jU=
 github.com/quobyte/api v0.1.8/go.mod h1:jL7lIHrmqQ7yh05OJ+eEEdHr0u/kmT1Ff9iHd+4H6VI=
-github.com/qzweng/open-gpu-share v0.2.2 h1:FEmiVMxEHJOJzxzo8UtVVEwwFu/2i3+KNlklQxjF/o8=
-github.com/qzweng/open-gpu-share v0.2.2/go.mod h1:em4TkfIn0YsmbhlJl++oOXju5rxAQG24u9N/HdWtleQ=
 github.com/rcrowley/go-metrics v0.0.0-20181016184325-3113b8401b8a/go.mod h1:bCqnVzQkZxMG4s8nGwiZ5l3QUCyqpo9Y+/ZMZ9VjZe4=
 github.com/remyoudompheng/bigfft v0.0.0-20170806203942-52369c62f446/go.mod h1:uYEyJGbgTkfkS4+E/PavXkNJcbFIpEtjt2B0KDQ5+9M=
 github.com/ricochet2200/go-disk-usage v0.0.0-20150921141558-f0d1b743428f/go.mod h1:yhevTRDiduxPJHQDCtlqUn53ojFPkRh/mKhMUzQUCpc=
