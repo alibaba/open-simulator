@@ -77,7 +77,10 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 	if err != nil {
 		return nil, err
 	}
-	defer sim.Close()
+	defer func() {
+		sim.Close()
+		sim = nil
+	}()
 	trace.Step("Trace Simulate init done")
 
 	cluster.Pods, err = GetValidPodExcludeDaemonSet(cluster)

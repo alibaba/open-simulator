@@ -23,6 +23,7 @@ import (
 
 	"github.com/alibaba/open-simulator/pkg/algo"
 	simonplugin "github.com/alibaba/open-simulator/pkg/simulator/plugin"
+	"github.com/alibaba/open-simulator/pkg/test"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/alibaba/open-simulator/pkg/utils"
 )
@@ -300,6 +301,7 @@ func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error)
 }
 
 func (sim *Simulator) Close() {
+	sim.fakeclient.CoreV1().Pods("test").Create(context.TODO(), test.MakeFakePod("test", "kube-system", "", ""), metav1.CreateOptions{})
 	sim.cancelFunc()
 	close(sim.simulatorStop)
 }

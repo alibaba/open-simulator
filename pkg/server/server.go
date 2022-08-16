@@ -8,6 +8,8 @@ import (
 
 	"net/http"
 
+	"github.com/gin-contrib/pprof"
+
 	"github.com/alibaba/open-simulator/pkg/simulator"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/alibaba/open-simulator/pkg/utils"
@@ -143,6 +145,12 @@ func (server *Server) Start(opts ...simulator.Option) {
 func (server *Server) setupRouter(opts ...simulator.Option) *gin.Engine {
 	defer utilruntime.HandleCrash()
 	r := gin.Default()
+
+	pprof.Register(r)
+
+	r.GET("/test", func(c *gin.Context) {
+		c.String(http.StatusOK, "test")
+	})
 
 	// check if server is healthy
 	r.GET("/healthz", func(c *gin.Context) {
