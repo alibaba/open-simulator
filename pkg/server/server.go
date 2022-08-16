@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/alibaba/open-simulator/pkg/simulator"
+	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/alibaba/open-simulator/pkg/utils"
 	"github.com/gin-gonic/gin"
 	appsv1 "k8s.io/api/apps/v1"
@@ -83,7 +84,7 @@ type UnscheduledPod struct {
 // 已成功调度的 Pod 信息
 type NodeStatus struct {
 	// 节点信息
-	Node *corev1.Node `json:"node"`
+	Node string `json:"node"`
 	// 该节点上所有 Pod 信息
 	Pods []string `json:"pods"`
 }
@@ -432,12 +433,17 @@ func getSimulateResponse(result *simulator.SimulateResult) *SimulateResponse {
 	for _, nodeStatus := range result.NodeStatus {
 		pods := []string{}
 		for _, pod := range nodeStatus.Pods {
-			pods = append(pods, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+			labels := pod.Labels
+			if _, exist := labels[simontype.LabelAppName]; exist {
+				pods = append(pods, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+			}
 		}
-		response.NodeStatus = append(response.NodeStatus, NodeStatus{
-			Node: nodeStatus.Node,
-			Pods: pods,
-		})
+		if len(pods) != 0 {
+			response.NodeStatus = append(response.NodeStatus, NodeStatus{
+				Node: nodeStatus.Node.Name,
+				Pods: pods,
+			})
+		}
 	}
 	return response
 }
