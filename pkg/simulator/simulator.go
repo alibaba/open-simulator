@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/pterm/pterm"
-	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -101,7 +100,6 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 	// Step 3: Create the simulator
 	ctx, cancel := context.WithCancel(context.Background())
 	sim := &Simulator{
-		kubeclient:      nil,
 		fakeclient:      fakeClient,
 		simulatorStop:   make(chan struct{}),
 		informerFactory: sharedInformerFactory,
@@ -115,7 +113,6 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 	sim.kubeclient, err = utils.CreateKubeClient(options.kubeconfig)
 	if err != nil {
 		sim.kubeclient = nil
-		log.Errorf("fail to create kube client: %s", err.Error())
 	}
 
 	// Step 5: add event handler for pods
@@ -203,9 +200,11 @@ func (sim *Simulator) ScheduleApp(app AppResource) (*SimulateResult, error) {
 	tolerationPriority := algo.NewTolerationQueue(appPods)
 	sort.Sort(tolerationPriority)
 
-	for _, patchPods := range sim.patchPodFuncMap {
-		if err := patchPods(appPods, sim.kubeclient); err != nil {
-			return nil, err
+	if sim.kubeclient != nil {
+		for _, patchPods := range sim.patchPodFuncMap {
+			if err := patchPods(appPods, sim.kubeclient); err != nil {
+				return nil, err
+			}
 		}
 	}
 
