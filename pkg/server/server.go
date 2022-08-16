@@ -67,6 +67,25 @@ type ScaleAppRequest struct {
 	NewNodes []*corev1.Node `json:"newnodes"`
 }
 
+type SimulateResponse struct {
+	UnscheduledPods []UnscheduledPod `json:"unscheduledPods"`
+	NodeStatus      []NodeStatus     `json:"nodeStatus"`
+}
+
+// 无法成功调度的 Pod 信息
+type UnscheduledPod struct {
+	Pod    string `json:"pod"`
+	Reason string `json:"reason"`
+}
+
+// 已成功调度的 Pod 信息
+type NodeStatus struct {
+	// 节点信息
+	Node *corev1.Node `json:"node"`
+	// 该节点上所有 Pod 信息
+	Pods []string `json:"pods"`
+}
+
 func NewServer(kubeconfig, master string) (*Server, error) {
 	cfg, err := clientcmd.BuildConfigFromFlags(master, kubeconfig)
 	if err != nil {
@@ -185,7 +204,9 @@ func (server *Server) setupRouter(opts ...simulator.Option) *gin.Engine {
 			return
 		}
 
-		c.JSON(http.StatusOK, result)
+		response := getSimulateResponse(result)
+
+		c.JSON(http.StatusOK, response)
 	})
 
 	// scale apps
@@ -260,8 +281,9 @@ func (server *Server) setupRouter(opts ...simulator.Option) *gin.Engine {
 			c.JSON(http.StatusInternalServerError, err.Error())
 			return
 		}
+		response := getSimulateResponse(result)
 
-		c.JSON(http.StatusOK, result)
+		c.JSON(http.StatusOK, response)
 	})
 
 	return r
@@ -394,4 +416,25 @@ func (server *Server) removePodsOfApp(pods []*corev1.Pod, apps *ScaleAppRequest)
 	}
 
 	return newPods, nil
+}
+
+func getSimulateResponse(result *simulator.SimulateResult) *SimulateResponse {
+	response := &SimulateResponse{}
+	for _, pod := range result.UnscheduledPods {
+		response.UnscheduledPods = append(response.UnscheduledPods, UnscheduledPod{
+			Pod:    fmt.Sprintf("%s/%s", pod.Pod.Namespace, pod.Pod.Name),
+			Reason: pod.Reason,
+		})
+	}
+	for _, nodeStatus := range result.NodeStatus {
+		pods := []string{}
+		for _, pod := range nodeStatus.Pods {
+			pods = append(pods, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+		}
+		response.NodeStatus = append(response.NodeStatus, NodeStatus{
+			Node: nodeStatus.Node,
+			Pods: pods,
+		})
+	}
+	return response
 }
