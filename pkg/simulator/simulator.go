@@ -44,7 +44,7 @@ type Simulator struct {
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 
-	writeToFile     bool
+	disablePTerm    bool
 	patchPodFuncMap PatchPodsFuncMap
 
 	status status
@@ -62,7 +62,7 @@ type PatchPodsFuncMap map[string]PatchPodFunc
 type simulatorOptions struct {
 	kubeconfig      string
 	schedulerConfig string
-	writeToFile     bool
+	disablePTerm    bool
 	extraRegistry   frameworkruntime.Registry
 	patchPodFuncMap PatchPodsFuncMap
 }
@@ -73,7 +73,7 @@ type Option func(*simulatorOptions)
 var defaultSimulatorOptions = simulatorOptions{
 	kubeconfig:      "",
 	schedulerConfig: "",
-	writeToFile:     false,
+	disablePTerm:    false,
 	extraRegistry:   make(map[string]frameworkruntime.PluginFactory),
 	patchPodFuncMap: make(map[string]PatchPodFunc),
 }
@@ -105,7 +105,7 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 		informerFactory: sharedInformerFactory,
 		ctx:             ctx,
 		cancelFunc:      cancel,
-		writeToFile:     options.writeToFile,
+		disablePTerm:    options.disablePTerm,
 		patchPodFuncMap: options.patchPodFuncMap,
 	}
 
@@ -208,6 +208,12 @@ func (sim *Simulator) ScheduleApp(app AppResource) (*SimulateResult, error) {
 		}
 	}
 
+	for _, cm := range app.Resource.ConfigMaps {
+		if _, err := sim.fakeclient.CoreV1().ConfigMaps(cm.Namespace).Create(context.Background(), cm, metav1.CreateOptions{}); err != nil {
+			return nil, err
+		}
+	}
+
 	failedPod, err := sim.schedulePods(appPods)
 	if err != nil {
 		return nil, err
@@ -258,11 +264,11 @@ func (sim *Simulator) runScheduler() {
 func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error) {
 	var failedPods []UnscheduledPod
 	var progressBar *pterm.ProgressbarPrinter
-	if !sim.writeToFile {
+	if !sim.disablePTerm {
 		progressBar, _ = pterm.DefaultProgressbar.WithTotal(len(pods)).Start()
 	}
 	for _, pod := range pods {
-		if !sim.writeToFile {
+		if !sim.disablePTerm {
 			// Update the title of the progressbar.
 			progressBar.UpdateTitle(fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
 		}
@@ -286,7 +292,7 @@ func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error)
 			})
 			sim.status.stopReason = ""
 		}
-		if !sim.writeToFile {
+		if !sim.disablePTerm {
 			progressBar.Increment()
 		}
 	}
@@ -429,18 +435,18 @@ func WithPatchPodsFuncMap(patchPodsFuncMap PatchPodsFuncMap) Option {
 	}
 }
 
-func WriteToFile(writeToFile bool) Option {
+func DisablePTerm(disablePTerm bool) Option {
 	return func(o *simulatorOptions) {
-		o.writeToFile = writeToFile
+		o.disablePTerm = disablePTerm
 	}
 }
 
 // CreateClusterResourceFromClient returns a ResourceTypes struct by kube-client that connects a real cluster
-func CreateClusterResourceFromClient(client externalclientset.Interface, writeToFile bool) (ResourceTypes, error) {
+func CreateClusterResourceFromClient(client externalclientset.Interface, disablePTerm bool) (ResourceTypes, error) {
 	var resource ResourceTypes
 	var err error
 	var spinner *pterm.SpinnerPrinter
-	if !writeToFile {
+	if !disablePTerm {
 		spinner, _ = pterm.DefaultSpinner.WithShowTimer().Start("get resource info from kube client")
 	}
 
@@ -529,7 +535,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface, writeTo
 		newItem := item
 		resource.DaemonSets = append(resource.DaemonSets, &newItem)
 	}
-	if !writeToFile {
+	if !disablePTerm {
 		spinner.Success("get resource info from kube client done!")
 	}
 
