@@ -42,8 +42,10 @@ type Simulator struct {
 	simulatorStop chan struct{}
 
 	// context
-	ctx        context.Context
-	cancelFunc context.CancelFunc
+	ctx                   context.Context
+	cancelFunc            context.CancelFunc
+	scheduleOneCtx        context.Context
+	scheduleOneCancelFunc context.CancelFunc
 
 	disablePTerm    bool
 	patchPodFuncMap PatchPodsFuncMap
@@ -100,14 +102,17 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 
 	// Step 3: Create the simulator
 	ctx, cancel := context.WithCancel(context.Background())
+	scheduleOneCtx, scheduleOneCancel := context.WithCancel(context.Background())
 	sim := &Simulator{
-		fakeclient:      fakeClient,
-		simulatorStop:   make(chan struct{}),
-		informerFactory: sharedInformerFactory,
-		ctx:             ctx,
-		cancelFunc:      cancel,
-		disablePTerm:    options.disablePTerm,
-		patchPodFuncMap: options.patchPodFuncMap,
+		fakeclient:            fakeClient,
+		simulatorStop:         make(chan struct{}),
+		informerFactory:       sharedInformerFactory,
+		ctx:                   ctx,
+		cancelFunc:            cancel,
+		scheduleOneCtx:        scheduleOneCtx,
+		scheduleOneCancelFunc: scheduleOneCancel,
+		disablePTerm:          options.disablePTerm,
+		patchPodFuncMap:       options.patchPodFuncMap,
 	}
 
 	// Step 4: kube client
@@ -258,7 +263,7 @@ func (sim *Simulator) runScheduler() {
 	sim.informerFactory.WaitForCacheSync(sim.ctx.Done())
 
 	// Step 2: run scheduler
-	go sim.scheduler.Run(sim.ctx)
+	go sim.scheduler.Run(sim.scheduleOneCtx)
 }
 
 // Run starts to schedule pods
@@ -301,7 +306,15 @@ func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error)
 }
 
 func (sim *Simulator) Close() {
-	sim.fakeclient.CoreV1().Pods("test").Create(context.TODO(), test.MakeFakePod("test", "kube-system", "", ""), metav1.CreateOptions{})
+	sim.scheduleOneCancelFunc()
+	testpod := test.MakeFakePod("test", "test", "", "")
+	_, err := sim.fakeclient.CoreV1().Pods("test").Create(context.TODO(), testpod, metav1.CreateOptions{})
+	if err != nil {
+		fmt.Printf("simon close with error: %s\n", err.Error())
+	}
+	if testpod.Spec.NodeName == "" {
+		<-sim.simulatorStop
+	}
 	sim.cancelFunc()
 	close(sim.simulatorStop)
 }

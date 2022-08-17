@@ -79,7 +79,6 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 	}
 	defer func() {
 		sim.Close()
-		sim = nil
 	}()
 	trace.Step("Trace Simulate init done")
 
