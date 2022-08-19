@@ -98,7 +98,6 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 
 	// Step 2: create fake client
 	fakeClient := fakeclientset.NewSimpleClientset()
-	sharedInformerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
 
 	// Step 3: Create the simulator
 	ctx, cancel := context.WithCancel(context.Background())
@@ -106,7 +105,6 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 	sim := &Simulator{
 		fakeclient:            fakeClient,
 		simulatorStop:         make(chan struct{}),
-		informerFactory:       sharedInformerFactory,
 		ctx:                   ctx,
 		cancelFunc:            cancel,
 		scheduleOneCtx:        scheduleOneCtx,
@@ -121,8 +119,27 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 		sim.kubeclient = nil
 	}
 
+	// Step 6: create scheduler for fake cluster
+	kubeSchedulerConfig.Client = fakeClient
+	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(sim.fakeclient, 0)
+	storagev1Informers := kubeInformerFactory.Storage().V1()
+	scInformer := kubeInformerFactory.Storage().V1().StorageClasses().Informer()
+	csiNodeInformer := kubeInformerFactory.Storage().V1().CSINodes().Informer()
+	cmInformer := kubeInformerFactory.Core().V1().ConfigMaps().Informer()
+	svcInformer := kubeInformerFactory.Core().V1().Services().Informer()
+	podInformer := kubeInformerFactory.Core().V1().Pods().Informer()
+	pdbInformer := kubeInformerFactory.Policy().V1beta1().PodDisruptionBudgets().Informer()
+	pvcInformer := kubeInformerFactory.Core().V1().PersistentVolumeClaims().Informer()
+	pvInformer := kubeInformerFactory.Core().V1().PersistentVolumes().Informer()
+	rcInformer := kubeInformerFactory.Core().V1().ReplicationControllers().Informer()
+	rsInformer := kubeInformerFactory.Apps().V1().ReplicaSets().Informer()
+	stsInformer := kubeInformerFactory.Apps().V1().StatefulSets().Informer()
+	nodeInformer := kubeInformerFactory.Core().V1().Nodes().Informer()
+	dsInformer := kubeInformerFactory.Apps().V1().DaemonSets().Informer()
+	deployInformer := kubeInformerFactory.Apps().V1().Deployments().Informer()
+
 	// Step 5: add event handler for pods
-	sim.informerFactory.Core().V1().Pods().Informer().AddEventHandler(
+	kubeInformerFactory.Core().V1().Pods().Informer().AddEventHandler(
 		cache.FilteringResourceEventHandler{
 			FilterFunc: func(obj interface{}) bool {
 				if pod, ok := obj.(*corev1.Pod); ok && pod.Spec.SchedulerName == simontype.DefaultSchedulerName {
@@ -145,14 +162,25 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 			},
 		},
 	)
+	sim.informerFactory = kubeInformerFactory
 
-	// Step 6: create scheduler for fake cluster
-	kubeSchedulerConfig.Client = fakeClient
-	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(sim.fakeclient, 0)
-	storagev1Informers := kubeInformerFactory.Storage().V1()
-	scInformer := storagev1Informers.StorageClasses().Informer()
-	kubeInformerFactory.Start(ctx.Done())
-	cache.WaitForCacheSync(ctx.Done(), scInformer.HasSynced)
+	sim.informerFactory.Start(ctx.Done())
+	cache.WaitForCacheSync(ctx.Done(),
+		scInformer.HasSynced,
+		csiNodeInformer.HasSynced,
+		cmInformer.HasSynced,
+		svcInformer.HasSynced,
+		podInformer.HasSynced,
+		pdbInformer.HasSynced,
+		pvcInformer.HasSynced,
+		pvInformer.HasSynced,
+		rcInformer.HasSynced,
+		rsInformer.HasSynced,
+		stsInformer.HasSynced,
+		nodeInformer.HasSynced,
+		dsInformer.HasSynced,
+		deployInformer.HasSynced,
+	)
 	bindRegistry := frameworkruntime.Registry{
 		simontype.SimonPluginName: func(configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
 			return simonplugin.NewSimonPlugin(sim.fakeclient, configuration, f)
@@ -259,8 +287,8 @@ func (sim *Simulator) getClusterNodeStatus() []NodeStatus {
 // runScheduler
 func (sim *Simulator) runScheduler() {
 	// Step 1: start all informers.
-	sim.informerFactory.Start(sim.ctx.Done())
-	sim.informerFactory.WaitForCacheSync(sim.ctx.Done())
+	// sim.informerFactory.Start(sim.ctx.Done())
+	// sim.informerFactory.WaitForCacheSync(sim.ctx.Done())
 
 	// Step 2: run scheduler
 	go sim.scheduler.Run(sim.scheduleOneCtx)
