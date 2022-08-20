@@ -26,6 +26,7 @@ import (
 	"github.com/alibaba/open-simulator/pkg/test"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/alibaba/open-simulator/pkg/utils"
+	"k8s.io/client-go/tools/events"
 )
 
 // Simulator is used to simulate a cluster and pods scheduling
@@ -46,6 +47,8 @@ type Simulator struct {
 	cancelFunc            context.CancelFunc
 	scheduleOneCtx        context.Context
 	scheduleOneCancelFunc context.CancelFunc
+
+	eventBroadcaster events.EventBroadcasterAdapter
 
 	disablePTerm    bool
 	patchPodFuncMap PatchPodsFuncMap
@@ -111,6 +114,7 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 		scheduleOneCancelFunc: scheduleOneCancel,
 		disablePTerm:          options.disablePTerm,
 		patchPodFuncMap:       options.patchPodFuncMap,
+		eventBroadcaster:      kubeSchedulerConfig.EventBroadcaster,
 	}
 
 	// Step 4: kube client
@@ -345,6 +349,7 @@ func (sim *Simulator) Close() {
 	}
 	sim.cancelFunc()
 	close(sim.simulatorStop)
+	sim.eventBroadcaster.Shutdown()
 }
 
 func (sim *Simulator) syncClusterResourceList(resourceList ResourceTypes) (*SimulateResult, error) {
