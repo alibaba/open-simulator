@@ -99,14 +99,20 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 		return nil, err
 	}
 
-	// Step 2: create fake client
+	// Step 2: create client
 	fakeClient := fakeclientset.NewSimpleClientset()
+	kubeclient, err := utils.CreateKubeClient(options.kubeconfig)
+	if err != nil {
+		kubeclient = nil
+	}
+	kubeSchedulerConfig.Client = fakeClient
 
 	// Step 3: Create the simulator
 	ctx, cancel := context.WithCancel(context.Background())
 	scheduleOneCtx, scheduleOneCancel := context.WithCancel(context.Background())
 	sim := &Simulator{
 		fakeclient:            fakeClient,
+		kubeclient:            kubeclient,
 		simulatorStop:         make(chan struct{}),
 		ctx:                   ctx,
 		cancelFunc:            cancel,
@@ -117,14 +123,7 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 		eventBroadcaster:      kubeSchedulerConfig.EventBroadcaster,
 	}
 
-	// Step 4: kube client
-	sim.kubeclient, err = utils.CreateKubeClient(options.kubeconfig)
-	if err != nil {
-		sim.kubeclient = nil
-	}
-
-	// Step 6: create scheduler for fake cluster
-	kubeSchedulerConfig.Client = fakeClient
+	// Step 4: create informer
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(sim.fakeclient, 0)
 	storagev1Informers := kubeInformerFactory.Storage().V1()
 	scInformer := kubeInformerFactory.Storage().V1().StorageClasses().Informer()
@@ -168,6 +167,7 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 	)
 	sim.informerFactory = kubeInformerFactory
 
+	// Step 6: start informer
 	sim.informerFactory.Start(ctx.Done())
 	cache.WaitForCacheSync(ctx.Done(),
 		scInformer.HasSynced,
@@ -185,6 +185,8 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 		dsInformer.HasSynced,
 		deployInformer.HasSynced,
 	)
+
+	// Step 7: create scheduler for sim
 	bindRegistry := frameworkruntime.Registry{
 		simontype.SimonPluginName: func(configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
 			return simonplugin.NewSimonPlugin(sim.fakeclient, configuration, f)
@@ -290,11 +292,6 @@ func (sim *Simulator) getClusterNodeStatus() []NodeStatus {
 
 // runScheduler
 func (sim *Simulator) runScheduler() {
-	// Step 1: start all informers.
-	// sim.informerFactory.Start(sim.ctx.Done())
-	// sim.informerFactory.WaitForCacheSync(sim.ctx.Done())
-
-	// Step 2: run scheduler
 	go sim.scheduler.Run(sim.scheduleOneCtx)
 }
 
