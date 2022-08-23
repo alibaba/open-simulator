@@ -23,8 +23,10 @@ import (
 
 	"github.com/alibaba/open-simulator/pkg/algo"
 	simonplugin "github.com/alibaba/open-simulator/pkg/simulator/plugin"
+	"github.com/alibaba/open-simulator/pkg/test"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
 	"github.com/alibaba/open-simulator/pkg/utils"
+	"k8s.io/client-go/tools/events"
 )
 
 // Simulator is used to simulate a cluster and pods scheduling
@@ -41,8 +43,12 @@ type Simulator struct {
 	simulatorStop chan struct{}
 
 	// context
-	ctx        context.Context
-	cancelFunc context.CancelFunc
+	ctx                   context.Context
+	cancelFunc            context.CancelFunc
+	scheduleOneCtx        context.Context
+	scheduleOneCancelFunc context.CancelFunc
+
+	eventBroadcaster events.EventBroadcasterAdapter
 
 	disablePTerm    bool
 	patchPodFuncMap PatchPodsFuncMap
@@ -93,30 +99,50 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 		return nil, err
 	}
 
-	// Step 2: create fake client
+	// Step 2: create client
 	fakeClient := fakeclientset.NewSimpleClientset()
-	sharedInformerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
+	kubeclient, err := utils.CreateKubeClient(options.kubeconfig)
+	if err != nil {
+		kubeclient = nil
+	}
+	kubeSchedulerConfig.Client = fakeClient
 
 	// Step 3: Create the simulator
 	ctx, cancel := context.WithCancel(context.Background())
+	scheduleOneCtx, scheduleOneCancel := context.WithCancel(context.Background())
 	sim := &Simulator{
-		fakeclient:      fakeClient,
-		simulatorStop:   make(chan struct{}),
-		informerFactory: sharedInformerFactory,
-		ctx:             ctx,
-		cancelFunc:      cancel,
-		disablePTerm:    options.disablePTerm,
-		patchPodFuncMap: options.patchPodFuncMap,
+		fakeclient:            fakeClient,
+		kubeclient:            kubeclient,
+		simulatorStop:         make(chan struct{}),
+		ctx:                   ctx,
+		cancelFunc:            cancel,
+		scheduleOneCtx:        scheduleOneCtx,
+		scheduleOneCancelFunc: scheduleOneCancel,
+		disablePTerm:          options.disablePTerm,
+		patchPodFuncMap:       options.patchPodFuncMap,
+		eventBroadcaster:      kubeSchedulerConfig.EventBroadcaster,
 	}
 
-	// Step 4: kube client
-	sim.kubeclient, err = utils.CreateKubeClient(options.kubeconfig)
-	if err != nil {
-		sim.kubeclient = nil
-	}
+	// Step 4: create informer
+	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(sim.fakeclient, 0)
+	storagev1Informers := kubeInformerFactory.Storage().V1()
+	scInformer := kubeInformerFactory.Storage().V1().StorageClasses().Informer()
+	csiNodeInformer := kubeInformerFactory.Storage().V1().CSINodes().Informer()
+	cmInformer := kubeInformerFactory.Core().V1().ConfigMaps().Informer()
+	svcInformer := kubeInformerFactory.Core().V1().Services().Informer()
+	podInformer := kubeInformerFactory.Core().V1().Pods().Informer()
+	pdbInformer := kubeInformerFactory.Policy().V1beta1().PodDisruptionBudgets().Informer()
+	pvcInformer := kubeInformerFactory.Core().V1().PersistentVolumeClaims().Informer()
+	pvInformer := kubeInformerFactory.Core().V1().PersistentVolumes().Informer()
+	rcInformer := kubeInformerFactory.Core().V1().ReplicationControllers().Informer()
+	rsInformer := kubeInformerFactory.Apps().V1().ReplicaSets().Informer()
+	stsInformer := kubeInformerFactory.Apps().V1().StatefulSets().Informer()
+	nodeInformer := kubeInformerFactory.Core().V1().Nodes().Informer()
+	dsInformer := kubeInformerFactory.Apps().V1().DaemonSets().Informer()
+	deployInformer := kubeInformerFactory.Apps().V1().Deployments().Informer()
 
 	// Step 5: add event handler for pods
-	sim.informerFactory.Core().V1().Pods().Informer().AddEventHandler(
+	kubeInformerFactory.Core().V1().Pods().Informer().AddEventHandler(
 		cache.FilteringResourceEventHandler{
 			FilterFunc: func(obj interface{}) bool {
 				if pod, ok := obj.(*corev1.Pod); ok && pod.Spec.SchedulerName == simontype.DefaultSchedulerName {
@@ -139,14 +165,28 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 			},
 		},
 	)
+	sim.informerFactory = kubeInformerFactory
 
-	// Step 6: create scheduler for fake cluster
-	kubeSchedulerConfig.Client = fakeClient
-	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(sim.fakeclient, 0)
-	storagev1Informers := kubeInformerFactory.Storage().V1()
-	scInformer := storagev1Informers.StorageClasses().Informer()
-	kubeInformerFactory.Start(ctx.Done())
-	cache.WaitForCacheSync(ctx.Done(), scInformer.HasSynced)
+	// Step 6: start informer
+	sim.informerFactory.Start(ctx.Done())
+	cache.WaitForCacheSync(ctx.Done(),
+		scInformer.HasSynced,
+		csiNodeInformer.HasSynced,
+		cmInformer.HasSynced,
+		svcInformer.HasSynced,
+		podInformer.HasSynced,
+		pdbInformer.HasSynced,
+		pvcInformer.HasSynced,
+		pvInformer.HasSynced,
+		rcInformer.HasSynced,
+		rsInformer.HasSynced,
+		stsInformer.HasSynced,
+		nodeInformer.HasSynced,
+		dsInformer.HasSynced,
+		deployInformer.HasSynced,
+	)
+
+	// Step 7: create scheduler for sim
 	bindRegistry := frameworkruntime.Registry{
 		simontype.SimonPluginName: func(configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
 			return simonplugin.NewSimonPlugin(sim.fakeclient, configuration, f)
@@ -252,12 +292,7 @@ func (sim *Simulator) getClusterNodeStatus() []NodeStatus {
 
 // runScheduler
 func (sim *Simulator) runScheduler() {
-	// Step 1: start all informers.
-	sim.informerFactory.Start(sim.ctx.Done())
-	sim.informerFactory.WaitForCacheSync(sim.ctx.Done())
-
-	// Step 2: run scheduler
-	go sim.scheduler.Run(sim.ctx)
+	go sim.scheduler.Run(sim.scheduleOneCtx)
 }
 
 // Run starts to schedule pods
@@ -300,8 +335,18 @@ func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error)
 }
 
 func (sim *Simulator) Close() {
+	sim.scheduleOneCancelFunc()
+	testpod := test.MakeFakePod("test", "test", "", "")
+	_, err := sim.fakeclient.CoreV1().Pods("test").Create(context.TODO(), testpod, metav1.CreateOptions{})
+	if err != nil {
+		fmt.Printf("simon close with error: %s\n", err.Error())
+	}
+	if testpod.Spec.NodeName == "" {
+		<-sim.simulatorStop
+	}
 	sim.cancelFunc()
 	close(sim.simulatorStop)
+	sim.eventBroadcaster.Shutdown()
 }
 
 func (sim *Simulator) syncClusterResourceList(resourceList ResourceTypes) (*SimulateResult, error) {

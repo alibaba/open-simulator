@@ -11,7 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	externalclientset "k8s.io/client-go/kubernetes"
-	"k8s.io/klog/v2"
+	klog "k8s.io/klog/v2"
 	resourcehelper "k8s.io/kubectl/pkg/util/resource"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 
