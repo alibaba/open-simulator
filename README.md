@@ -29,6 +29,10 @@ Open-Simulator intends to reduce the labor costs in the delivery phase and maint
 
 More details [here](docs/user-guide/user-guide_zh_CN.md)
 
+## Contact
+
+Join us from DingTalk: Group No.44890136
+
 ## License
 
 [Apache 2.0 License](LICENSE)
