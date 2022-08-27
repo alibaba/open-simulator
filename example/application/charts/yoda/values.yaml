@@ -58,7 +58,7 @@ globalconfig:
   YodaDevice: ""
   RegistryURL: registry.cn-hangzhou.aliyuncs.com
   # 单master模式
-  SingleMasterMode: false
+  SingleMasterMode: true
   # 传递给yoda使用的VG列表，以,隔开
   YodaVGs: ""
   YodaSchedulerNodePort: "32747"

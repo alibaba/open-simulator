@@ -208,7 +208,7 @@ func (applier *Applier) Run() (err error) {
 				return err
 			}
 			newClusterResource.Nodes = append(newClusterResource.Nodes, nodes...)
-			result, err = simulator.Simulate(newClusterResource, selectedResourceList, simulator.DisablePTerm(disablePTerm))
+			result, err = simulator.Simulate(newClusterResource, selectedResourceList, simulator.DisablePTerm(disablePTerm), simulator.WithKubeConfig(applier.cluster.KubeConfig))
 
 			if err != nil {
 				return err

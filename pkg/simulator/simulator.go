@@ -253,6 +253,16 @@ func (sim *Simulator) ScheduleApp(app AppResource) (*SimulateResult, error) {
 			return nil, err
 		}
 	}
+	for _, sc := range app.Resource.StorageClasss {
+		if _, err := sim.fakeclient.StorageV1().StorageClasses().Create(context.Background(), sc, metav1.CreateOptions{}); err != nil {
+			return nil, err
+		}
+	}
+	for _, pdb := range app.Resource.PodDisruptionBudgets {
+		if _, err := sim.fakeclient.PolicyV1beta1().PodDisruptionBudgets(pdb.Namespace).Create(context.Background(), pdb, metav1.CreateOptions{}); err != nil {
+			return nil, err
+		}
+	}
 
 	failedPod, err := sim.schedulePods(appPods)
 	if err != nil {
@@ -301,6 +311,9 @@ func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error)
 	var progressBar *pterm.ProgressbarPrinter
 	if !sim.disablePTerm {
 		progressBar, _ = pterm.DefaultProgressbar.WithTotal(len(pods)).Start()
+		defer func() {
+			_, _ = progressBar.Stop()
+		}()
 	}
 	for _, pod := range pods {
 		if !sim.disablePTerm {
