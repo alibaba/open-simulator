@@ -70,7 +70,7 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 	watch.DefaultChanSize = 1000
 
 	trace := utiltrace.New("Trace Simulate")
-	defer trace.LogIfLong(100 * time.Millisecond)
+	defer trace.LogIfLong(1 * time.Second)
 
 	// init simulator
 	sim, err := NewSimulator(opts...)

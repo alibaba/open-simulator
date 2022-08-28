@@ -17,7 +17,7 @@ var ApplyCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		applier := applypkg.NewApplier(options)
 		if err := applier.Run(); err != nil {
-			pterm.FgRed.Printf("apply error: %s", err.Error())
+			pterm.FgRed.Printf("apply error: %s\n", err.Error())
 			os.Exit(1)
 		}
 	},

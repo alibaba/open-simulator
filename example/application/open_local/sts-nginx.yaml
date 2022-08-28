@@ -15,7 +15,7 @@ spec:
     spec:
       accessModes:
         - ReadWriteOnce
-      storageClassName: open-local-lvm
+      storageClassName: yoda-lvm-default
       resources:
         requests:
           storage: 10Gi
@@ -24,7 +24,7 @@ spec:
     spec:
       accessModes:
         - ReadWriteOnce
-      storageClassName: open-local-lvm
+      storageClassName: yoda-lvm-default
       resources:
         requests:
           storage: 40Gi
@@ -33,7 +33,7 @@ spec:
     spec:
       accessModes:
         - ReadWriteOnce
-      storageClassName: open-local-device-hdd
+      storageClassName: yoda-device-hdd
       resources:
         requests:
           storage: 100Gi
