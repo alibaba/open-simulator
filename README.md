@@ -7,7 +7,7 @@ English | [简体中文](./README_zh.md) | [Korean](./README_ko.md)
 
 ## Introduction
 
-Open-simulator is a **cluster simulator** for Kubernetes. With the simulation capability of Open-Simulator, users can create a fake Kubernetes cluster and deploy [workloads](https://kubernetes.io/zh/docs/concepts/workloads/) on it. Open-Simulator will simulate the [kube-controller-manager](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-controller-manager/) to create pods for the workloads, and simulate the [kube-scheduler](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-scheduler/) to assign pods to the appropriate nodes.
+Open-simulator is a **cluster simulator** for Kubernetes. With the simulation capability of Open-Simulator, users can create a fake Kubernetes cluster and deploy [workloads](https://kubernetes.io/docs/concepts/workloads/) on it. Open-Simulator will simulate the [kube-controller-manager](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-controller-manager/) to create pods for the workloads, and simulate the [kube-scheduler](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-scheduler/) to assign pods to the appropriate nodes.
 
 ## Use Case
 
