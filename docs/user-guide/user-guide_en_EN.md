@@ -1,20 +1,20 @@
 # User's manual
 
-- [User's Manual](# User's Manual)
-  - [Cluster Simulation](# Cluster Simulation)
-    - [Build Virtual Cluster](# Build Virtual Cluster)
-    - [Copy Existing Cluster](#Copy Existing Cluster)
-  - [Simulate Deployment Application](# Simulate Deployment Application)
-    - [General Application](#General Application)
-    - [Chart application](#chart application)
+- [User's manual](#users-manual)
+  - [Cluster simulation](#cluster-simulation)
+    - [Building a virtual cluster](#building-a-virtual-cluster)
+    - [Replicate an existing cluster](#replicate-an-existing-cluster)
+  - [Simulate deploying the application](#simulate-deploying-the-application)
+    - [Common application](#common-application)
+    - [Chart application](#chart-application)
 
 ## Cluster simulation
 
-The command line description of > simon is described in [link](. /commandline/simon.md)
+The command line description of > simon is described in [link](../commandline/simon.md)
 
 ### Building a virtual cluster
 
-Edit [example/simon-config.yaml](... /... /example/simon-config.yaml) file to set up the custom cluster.
+Edit [example/simon-config.yaml](../../example/simon-config.yaml) file to set up the custom cluster.
 
 ```yaml
 apiVersion: simon/v1alpha1
@@ -41,7 +41,7 @@ bin/simon apply -i -f example/simon-config.yaml
 
 ### Replicate an existing cluster
 
-Edit [example/simon-config.yaml](... /... /example/simon-config.yaml) file and set the kubeconfig file path.
+Edit [example/simon-config.yaml](../../example/simon-config.yaml) file and set the kubeconfig file path.
 
 ```yaml
 apiVersion: simon/v1alpha1
@@ -65,7 +65,7 @@ bin/simon apply -i -f example/simon-config.yaml
 
 ### Common application
 
-Edit [example/simon-config.yaml](... /... /example/simon-config.yaml) file.
+Edit [example/simon-config.yaml](../../example/simon-config.yaml) file.
 
 ```yaml
 apiVersion: simon/v1alpha1
@@ -95,7 +95,7 @@ bin/simon apply -i -f example/simon-config.yaml
 
 ### Chart application
 
-Edit [example/simon-config.yaml](... /... /example/simon-config.yaml) file.
+Edit [example/simon-config.yaml](../../example/simon-config.yaml) file.
 
 ```yaml
 apiVersion: simon/v1alpha1
