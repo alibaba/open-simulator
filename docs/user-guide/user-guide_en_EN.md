@@ -10,7 +10,7 @@
 
 ## Cluster simulation
 
-The command line description of > simon is described in [link](../commandline/simon.md)
+> The command line description of simon is described in [link](../commandline/simon.md)
 
 ### Building a virtual cluster
 
@@ -24,7 +24,7 @@ metadata:
 spec:
   cluster:
     customConfig: example/cluster/demo_1
-The ```
+```
 
 The .spec.cluster.customConfig field contains a folder path containing the files necessary to build the virtual cluster:
 
