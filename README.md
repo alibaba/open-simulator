@@ -27,7 +27,9 @@ Open-Simulator intends to reduce the labor costs in the delivery phase and maint
 
 ## User guide
 
-More details [here](docs/user-guide/user-guide_zh_CN.md)
+- [English](docs/user-guide/user-guide_en_EN.md)
+- [简体中文](docs/user-guide/user-guide_zh_CN.md)
+- [Korean](docs/user-guide/user-guide_ko_KR.md)
 
 ## Contact
 
