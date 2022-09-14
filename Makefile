@@ -1,7 +1,6 @@
-GO111MODULE=off
-GOARCH=amd64
-GOOS=darwin
-# GOOS=linux
+GO111MODULE ?= on
+GOARCH ?= $(shell go env GOARCH)
+GOOS ?= $(shell go env GOOS)
 GO_PACKAGE=github.com/alibaba/open-simulator
 CGO_ENABLED=0
 
@@ -17,8 +16,8 @@ all: build
 .PHONY: build 
 build:
 	GO111MODULE=$(GO111MODULE) GOARCH=$(GOARCH) GOOS=$(GOOS) CGO_ENABLED=0 go build -trimpath $(LD_FLAGS) -v -o $(OUTPUT_DIR)/$(BINARY_NAME) ./cmd
-	# chmod +x $(OUTPUT_DIR)/$(BINARY_NAME)
-	# bin/simon apply -i -f ./example/simon-config.yaml
+# chmod +x $(OUTPUT_DIR)/$(BINARY_NAME)
+# bin/simon apply -i -f ./example/simon-config.yaml
 
 .PHONY: test 
 test:
