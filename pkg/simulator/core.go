@@ -72,16 +72,7 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 	trace := utiltrace.New("Trace Simulate")
 	defer trace.LogIfLong(1 * time.Second)
 
-	// init simulator
-	sim, err := NewSimulator(opts...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		sim.Close()
-	}()
-	trace.Step("Trace Simulate init done")
-
+	var err error
 	cluster.Pods, err = GetValidPodExcludeDaemonSet(cluster)
 	if err != nil {
 		return nil, err
@@ -94,6 +85,16 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 		cluster.Pods = append(cluster.Pods, validPods...)
 	}
 	trace.Step("Trace Simulate make valid pod done")
+
+	// init simulator
+	sim, err := NewSimulator(opts...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		sim.Close()
+	}()
+	trace.Step("Trace Simulate init done")
 
 	var failedPods []UnscheduledPod
 	// run cluster
